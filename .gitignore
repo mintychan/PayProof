@@ -1,0 +1,19 @@
+.env
+node_modules
+.DS_Store
+.vscode
+
+# Next.js build output
+apps/web/.next
+apps/web/test-results
+
+# Hardhat artifacts & cache
+contracts/artifacts
+contracts/cache
+contracts/typechain-types
+
+# pnpm store (if local)
+.pnpm-store
+
+# Temporary files
+tmp*

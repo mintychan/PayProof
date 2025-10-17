@@ -1,0 +1,17 @@
+{
+  "name": "payproof",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "pnpm --filter @payproof/web dev",
+    "build": "pnpm --filter @payproof/web build",
+    "lint": "pnpm --filter @payproof/web lint",
+    "test:contracts": "pnpm --filter @payproof/contracts test",
+    "test:e2e": "pnpm --filter @payproof/web test:e2e",
+    "test": "pnpm test:contracts && pnpm test:e2e"
+  },
+  "workspaces": [
+    "apps/*",
+    "contracts"
+  ]
+}

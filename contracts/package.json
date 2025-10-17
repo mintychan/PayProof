@@ -1,0 +1,17 @@
+{
+  "name": "@payproof/contracts",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "build": "hardhat compile",
+    "clean": "hardhat clean",
+    "test": "hardhat test"
+  },
+  "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox": "^4.0.0",
+    "dotenv": "^16.4.5",
+    "hardhat": "^2.22.3",
+    "ts-node": "^10.9.2",
+    "typescript": "~5.4.5"
+  }
+}
