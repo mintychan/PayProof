@@ -51,6 +51,9 @@ export function FhevmProvider({ children }: { children: React.ReactNode }) {
     const init = async () => {
       setInitializing(true);
       try {
+        if (typeof globalThis !== "undefined" && typeof (globalThis as any).global === "undefined") {
+          (globalThis as any).global = globalThis;
+        }
         const relayer = await import("@zama-fhe/relayer-sdk/web");
         if (!relayer) throw new Error("Failed to load relayer SDK");
 
