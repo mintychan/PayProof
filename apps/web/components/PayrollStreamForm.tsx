@@ -2,7 +2,6 @@
 
 import { FormEvent, useMemo, useState } from "react";
 import CipherBadge from "./CipherBadge";
-import NetworkStatus from "./NetworkStatus";
 import { useFhevm } from "../providers/FhevmProvider";
 
 const CADENCE_OPTIONS = [
@@ -57,50 +56,49 @@ export default function PayrollStreamForm() {
   };
 
   return (
-    <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,19rem)] lg:items-start">
-      <form
-        className="grid gap-4 rounded-2xl border border-slate-800 bg-slate-900/60 p-6"
-        onSubmit={handleSubmit}
-        data-testid="stream-form"
-      >
-        <div className="flex items-center justify-between">
-          <h2 className="text-xl font-semibold text-white">Create Confidential Stream</h2>
-          <CipherBadge
-            label={
-              encryptionReady
-                ? "FHE ready"
-                : initializing
-                  ? "Initialising fhEVM"
-                  : "Awaiting inputs"
-            }
-          />
+    <form className="grid gap-4" onSubmit={handleSubmit} data-testid="stream-form">
+      <div className="flex items-center justify-between rounded-2xl border border-white/5 bg-slate-900/60 px-4 py-3">
+        <div>
+          <h2 className="text-lg font-semibold text-white">Create Confidential Stream</h2>
+          <p className="text-xs text-slate-400">Inputs are encrypted client-side and stored privately on-chain.</p>
         </div>
-        <label className="grid gap-1 text-sm">
-          <span className="text-slate-300">Employer wallet</span>
-          <input
-            className="rounded border border-slate-700 bg-slate-950 px-3 py-2 text-slate-100"
-            placeholder="0x1234…"
-            value={employerAddress}
-            onChange={(event) => setEmployerAddress(event.target.value)}
-            required
-            name="employer"
-          />
-        </label>
-        <label className="grid gap-1 text-sm">
-          <span className="text-slate-300">Employee wallet</span>
-          <input
-            className="rounded border border-slate-700 bg-slate-950 px-3 py-2 text-slate-100"
-            placeholder="0xABCD…"
-            value={employeeAddress}
-            onChange={(event) => setEmployeeAddress(event.target.value)}
-            required
-            name="employee"
-          />
-        </label>
+        <CipherBadge
+          label={
+            encryptionReady
+              ? "FHE ready"
+              : initializing
+                ? "Initialising fhEVM"
+                : "Awaiting inputs"
+          }
+        />
+      </div>
+      <label className="grid gap-1 text-sm">
+        <span className="text-slate-300">Employer wallet</span>
+        <input
+          className="rounded-2xl border border-slate-800 bg-slate-950/80 px-4 py-3 text-slate-100 placeholder:text-slate-500 focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/30"
+          placeholder="0x1234…"
+          value={employerAddress}
+          onChange={(event) => setEmployerAddress(event.target.value)}
+          required
+          name="employer"
+        />
+      </label>
+      <label className="grid gap-1 text-sm">
+        <span className="text-slate-300">Employee wallet</span>
+        <input
+          className="rounded-2xl border border-slate-800 bg-slate-950/80 px-4 py-3 text-slate-100 placeholder:text-slate-500 focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/30"
+          placeholder="0xABCD…"
+          value={employeeAddress}
+          onChange={(event) => setEmployeeAddress(event.target.value)}
+          required
+          name="employee"
+        />
+      </label>
+      <div className="grid gap-4 md:grid-cols-2">
         <label className="grid gap-1 text-sm">
           <span className="text-slate-300">Stream rate (encrypted units / second)</span>
           <input
-            className="rounded border border-slate-700 bg-slate-950 px-3 py-2 text-slate-100"
+            className="rounded-2xl border border-slate-800 bg-slate-950/80 px-4 py-3 text-slate-100 placeholder:text-slate-500 focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/30"
             type="number"
             min="1"
             value={rate}
@@ -112,7 +110,7 @@ export default function PayrollStreamForm() {
         <label className="grid gap-1 text-sm">
           <span className="text-slate-300">Cadence</span>
           <select
-            className="rounded border border-slate-700 bg-slate-950 px-3 py-2 text-slate-100"
+            className="rounded-2xl border border-slate-800 bg-slate-950/80 px-4 py-3 text-slate-100 focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/30"
             value={cadence}
             onChange={(event) => setCadence(Number(event.target.value))}
             name="cadence"
@@ -124,54 +122,37 @@ export default function PayrollStreamForm() {
             ))}
           </select>
         </label>
-        <button
-          type="submit"
-          className="rounded bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground"
-          disabled={!encryptionReady || encrypting}
-        >
-          {encrypting ? "Encrypting…" : "Encrypt & Create Stream"}
-        </button>
-        {formError ? (
-          <p className="rounded border border-red-500/40 bg-red-500/10 p-3 text-xs text-red-200">
-            {formError}
-          </p>
-        ) : null}
-        {fheError ? (
-          <p className="rounded border border-amber-500/40 bg-amber-500/10 p-3 text-xs text-amber-200">
-            {fheError}
-          </p>
-        ) : null}
-        {encryptionPreview ? (
-          <div className="rounded border border-emerald-500/50 bg-emerald-500/10 p-3 text-xs text-emerald-200" data-testid="encryption-preview">
-            <p className="font-semibold">Encrypted rate payload</p>
-            <p>Handle: <code className="break-all text-emerald-100">{encryptionPreview.handle}</code></p>
-            <p>Proof: <code className="break-all text-emerald-100">{encryptionPreview.proof}</code></p>
-            <p className="text-emerald-300/80">{encryptionPreview.summary}</p>
-          </div>
-        ) : null}
-        {result ? (
-          <p className="rounded border border-slate-800 bg-slate-900/60 p-3 text-sm text-slate-200" data-testid="stream-result">
-            {result}
-          </p>
-        ) : null}
-      </form>
-      <aside className="grid gap-4 rounded-2xl border border-slate-800 bg-slate-900/40 p-6 text-sm text-slate-300">
-        <h3 className="text-base font-semibold text-white">Network readiness</h3>
-        <p className="text-xs text-slate-400">
-          Verify RPC health before recording the demo. Both the Protocol testnet and Sepolia Coprocessor should respond to `eth_chainId`.
+      </div>
+      <button
+        type="submit"
+        className="rounded-2xl bg-gradient-to-r from-sky-500 to-emerald-400 px-4 py-3 text-sm font-semibold text-slate-950 transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-60"
+        disabled={!encryptionReady || encrypting}
+      >
+        {encrypting ? "Encrypting…" : "Encrypt & Create Stream"}
+      </button>
+      {formError ? (
+        <p className="rounded-2xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-xs text-red-200">
+          {formError}
         </p>
-        <NetworkStatus />
-        <div className="rounded border border-slate-800 bg-slate-900/60 p-3 text-xs text-slate-400">
-          <p className="font-semibold text-slate-200">Demo prompts</p>
-          <ul className="list-disc space-y-1 pl-4">
-            <li>Encrypt inputs client-side before submitting.
-            </li>
-            <li>Show the ciphertext payload in the UI.
-            </li>
-            <li>Record the transaction hash and stream ID for README updates.</li>
-          </ul>
+      ) : null}
+      {fheError ? (
+        <p className="rounded-2xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-xs text-amber-200">
+          {fheError}
+        </p>
+      ) : null}
+      {encryptionPreview ? (
+        <div className="rounded-2xl border border-emerald-500/40 bg-emerald-500/10 px-4 py-4 text-xs text-emerald-200" data-testid="encryption-preview">
+          <p className="font-semibold text-emerald-100">Encrypted rate payload</p>
+          <p className="mt-2">Handle: <code className="break-all text-emerald-100/90">{encryptionPreview.handle}</code></p>
+          <p className="mt-2">Proof: <code className="break-all text-emerald-100/90">{encryptionPreview.proof}</code></p>
+          <p className="mt-3 text-emerald-200/80">{encryptionPreview.summary}</p>
         </div>
-      </aside>
-    </div>
+      ) : null}
+      {result ? (
+        <p className="rounded-2xl border border-slate-800 bg-slate-900/60 px-4 py-3 text-sm text-slate-200" data-testid="stream-result">
+          {result}
+        </p>
+      ) : null}
+    </form>
   );
 }

@@ -13,29 +13,38 @@ export default function RootLayout({ children }: { children: ReactNode }) {
     <html lang="en">
       <body className="font-sans">
         <FhevmProvider>
-          <header className="border-b border-slate-800 bg-slate-950/60 backdrop-blur supports-[backdrop-filter]:bg-slate-950/60">
-            <div className="mx-auto flex max-w-5xl items-center justify-between px-4 py-4">
-              <div className="flex items-baseline gap-2">
-                <span className="rounded bg-primary px-2 py-1 text-xs font-semibold text-primary-foreground">Encrypted</span>
-                <h1 className="text-lg font-semibold tracking-tight text-white">PayProof</h1>
+          <div className="mx-auto flex min-h-screen max-w-6xl flex-col px-4 py-6 lg:px-8">
+            <header className="flex items-center justify-between rounded-3xl border border-white/5 bg-slate-950/70 px-6 py-4 shadow-[0_15px_35px_-20px_rgba(2,132,199,0.4)] backdrop-blur">
+              <div className="flex items-center gap-3">
+                <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-sky-500/20 text-sky-300">
+                  <span className="text-lg font-semibold">PP</span>
+                </span>
+                <div>
+                  <p className="text-sm font-semibold tracking-wide text-white">PayProof Console</p>
+                  <p className="text-xs text-slate-400">Confidential payroll &amp; programmable PoI</p>
+                </div>
               </div>
-              <nav className="flex gap-4 text-sm text-slate-300">
-                <a href="/employer" className="hover:text-white">
-                  Employer
+              <nav className="flex items-center gap-6 text-sm text-slate-300">
+                <a href="/employer" className="rounded-full px-3 py-1.5 transition-colors hover:bg-slate-800/80 hover:text-white">
+                  Streams
                 </a>
-                <a href="/employee" className="hover:text-white">
-                  Employee
+                <a href="/employee" className="rounded-full px-3 py-1.5 transition-colors hover:bg-slate-800/80 hover:text-white">
+                  Payslips
                 </a>
-                <a href="/verify" className="hover:text-white">
-                  Verifier
+                <a href="/verify" className="rounded-full px-3 py-1.5 transition-colors hover:bg-slate-800/80 hover:text-white">
+                  Proofs
                 </a>
+                <span className="ml-3 hidden items-center gap-2 rounded-full border border-white/10 bg-slate-900/80 px-3 py-1.5 text-xs font-medium text-slate-200 md:inline-flex">
+                  <span className="h-2 w-2 rounded-full bg-emerald-400" /> fhE Ready
+                </span>
               </nav>
-            </div>
-          </header>
-          <main className="mx-auto flex min-h-[calc(100vh-4rem)] max-w-5xl flex-col gap-10 px-4 py-10">{children}</main>
-          <footer className="border-t border-slate-800 bg-slate-950/60 py-6 text-center text-xs text-slate-400">
-            Built for the Zama Builder Track — encrypted payroll, threshold attestations, and composable FH EVM flows.
-          </footer>
+            </header>
+            <main className="flex flex-1 flex-col gap-8 py-10">{children}</main>
+            <footer className="mt-12 flex flex-col items-center gap-2 rounded-3xl border border-white/5 bg-slate-950/70 px-6 py-6 text-xs text-slate-500 backdrop-blur">
+              <p>Built for the Zama Builder Track — encrypted payroll, threshold attestations, and composable fhEVM flows.</p>
+              <p className="text-[11px] text-slate-500">Sepolia fhE Coprocessor · End-to-end encrypted inputs · Threshold attestations</p>
+            </footer>
+          </div>
         </FhevmProvider>
       </body>
     </html>

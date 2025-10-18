@@ -1,8 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import NetworkStatus from "../../components/NetworkStatus";
 import PayslipCard from "../../components/PayslipCard";
 import CipherBadge from "../../components/CipherBadge";
+import { PageHeader } from "../../components/ui/PageHeader";
+import { SectionCard } from "../../components/ui/SectionCard";
+import { MetricPill } from "../../components/ui/MetricPill";
 import { useFhevm } from "../../providers/FhevmProvider";
 
 const PERIOD_INCOME = 4200;
@@ -52,30 +56,57 @@ export default function EmployeePage() {
   }, [fheReady, encryptNumber, payrollContract, employeeAddress]);
 
   return (
-    <section className="space-y-6">
-      <header className="grid gap-2">
-        <p className="text-sm uppercase tracking-wide text-slate-400">Employee Wallet</p>
-        <h2 className="text-2xl font-bold text-white">Decrypt your payslip locally</h2>
-        <p className="max-w-3xl text-sm text-slate-300">
-          Your payslip data never leaves your device. Download the attestation artifact when a verifier needs proof-of-income.
-        </p>
-      </header>
-      <PayslipCard
-        periodHandle={periodEncrypted?.handle}
-        periodProof={periodEncrypted?.proof}
-        periodValue={PERIOD_INCOME}
-        periodLabel="September 2025"
-        yearToDateHandle={ytdEncrypted?.handle}
-        yearToDateProof={ytdEncrypted?.proof}
-        yearToDateValue={YTD_INCOME}
-        loading={loading || initializing}
-        error={error || fheError}
+    <section className="space-y-8">
+      <PageHeader
+        title="Payslip Vault"
+        subtitle="Decrypt the latest earnings privately, share attestations with verifiers, and keep your salary protected end-to-end."
+        actions={
+          <span className="inline-flex items-center gap-2 rounded-full border border-white/5 bg-slate-900/70 px-3 py-1.5 text-xs text-slate-300">
+            <span className="h-2 w-2 rounded-full bg-emerald-400" /> fhE session active
+          </span>
+        }
       />
-      <div className="grid gap-3 rounded-2xl border border-slate-800 bg-slate-900/40 p-6 text-sm text-slate-300">
-        <CipherBadge label="Attestation ready" />
-        <p>
-          Export the JSON proof for lenders or rental agents. They can verify the attestation hash on-chain without seeing your exact salary.
-        </p>
+
+      <div className="grid gap-6 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
+        <SectionCard accent="violet" description="Only you can decrypt the payslip. Handles and proofs never leave your browser.">
+          <PayslipCard
+            periodHandle={periodEncrypted?.handle}
+            periodProof={periodEncrypted?.proof}
+            periodValue={PERIOD_INCOME}
+            periodLabel="Current pay period"
+            yearToDateHandle={ytdEncrypted?.handle}
+            yearToDateProof={ytdEncrypted?.proof}
+            yearToDateValue={YTD_INCOME}
+            loading={loading || initializing}
+            error={error || fheError}
+          />
+        </SectionCard>
+
+        <div className="flex flex-col gap-6">
+          <SectionCard accent="sky" title="Status overview">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <MetricPill label="Wallet" value={employeeAddress.slice(0, 10) + "…"} tone="sky" />
+              <MetricPill label="Stream cadence" value="On-chain enforced" tone="emerald" />
+              <MetricPill label="Last sync" value={loading ? "Syncing…" : "Moments ago"} tone="violet" />
+              <MetricPill label="Proof policy" value="Threshold attestations" tone="amber" />
+            </div>
+          </SectionCard>
+
+          <SectionCard accent="slate" title="Export & share">
+            <div className="space-y-4 text-sm text-slate-300">
+              <div className="flex items-center gap-3 rounded-2xl border border-white/5 bg-slate-900/70 px-4 py-3">
+                <CipherBadge label="Attestation ready" />
+                <p>Generate an encrypted proof artifact for lenders, landlords, or partners.</p>
+              </div>
+              <ul className="space-y-2 text-xs leading-relaxed text-slate-400">
+                <li>• Handles + proofs stay local; only the pass/fail signal leaves your device.</li>
+                <li>• Need a credential? Export the JSON artifact and share the verifier snippet.</li>
+                <li>• Network health check ensures the fhE Coprocessor is responsive before sharing.</li>
+              </ul>
+              <NetworkStatus />
+            </div>
+          </SectionCard>
+        </div>
       </div>
     </section>
   );
