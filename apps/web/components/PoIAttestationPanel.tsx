@@ -2,7 +2,7 @@
 
 import { FormEvent, useMemo, useState } from "react";
 import CipherBadge from "./CipherBadge";
-import { encryptNumber } from "../lib/crypto/encryption";
+import { useFhevm } from "../providers/FhevmProvider";
 
 const TIERS = [
   { label: "Tier A", description: "≥ 2× threshold" },
@@ -11,25 +11,50 @@ const TIERS = [
 ];
 
 export default function PoIAttestationPanel() {
+  const { encryptNumber, ready: fheReady, initializing, error: fheError } = useFhevm();
   const [threshold, setThreshold] = useState<string>("");
   const [lookbackDays, setLookbackDays] = useState<number>(30);
-  const [ciphertext, setCiphertext] = useState<string>("");
+  const [ciphertext, setCiphertext] = useState<{ handle: string; proof: string; summary: string } | null>(null);
   const [result, setResult] = useState<{ meets: boolean; tier: string; attestationHash: string } | null>(null);
+  const [encrypting, setEncrypting] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
 
-  const ready = useMemo(() => Number(threshold) > 0 && lookbackDays > 0, [threshold, lookbackDays]);
+  const ready = useMemo(() => fheReady && Number(threshold) > 0 && lookbackDays > 0, [fheReady, threshold, lookbackDays]);
 
-  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+  const oracleAddress = process.env.NEXT_PUBLIC_PAYPROOF_ORACLE_CONTRACT?.trim() || "0xbBbBBBBbbBBBbbbBbbBbbbbBBbBbbbbBbBbbBBbB";
+  const verifierAddress = process.env.NEXT_PUBLIC_PAYPROOF_VERIFIER?.trim() || "0xcCCcccCcCCcccCccccCCCcCcCcCCCcCcccccccCC";
+
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    const enc = encryptNumber(Number(threshold));
-    setCiphertext(enc);
-    const meets = Number(threshold) <= 5_000;
-    const tier = meets ? (Number(threshold) <= 2_500 ? "A" : Number(threshold) <= 3_500 ? "B" : "C") : "-";
-    const attestationHash = crypto.randomUUID();
-    setResult({
-      meets,
-      tier,
-      attestationHash
-    });
+    setFormError(null);
+    if (!ready) {
+      setFormError("fhEVM is not ready yet. Please wait a second and retry.");
+      return;
+    }
+
+    try {
+      setEncrypting(true);
+      const enc = await encryptNumber({
+        value: Number(threshold),
+        bitSize: 128,
+        contractAddress: oracleAddress,
+        userAddress: verifierAddress
+      });
+      setCiphertext(enc);
+
+      const meets = Number(threshold) <= 5_000;
+      const tier = meets ? (Number(threshold) <= 2_500 ? "A" : Number(threshold) <= 3_500 ? "B" : "C") : "-";
+      const attestationHash = crypto.randomUUID();
+      setResult({
+        meets,
+        tier,
+        attestationHash
+      });
+    } catch (err) {
+      setFormError((err as Error)?.message ?? "Failed to encrypt threshold");
+    } finally {
+      setEncrypting(false);
+    }
   };
 
   return (
@@ -39,7 +64,7 @@ export default function PoIAttestationPanel() {
           <h2 className="text-xl font-semibold text-white">Request Proof-of-Income</h2>
           <p className="text-sm text-slate-400">Attest against an encrypted threshold — verifiers learn only the tier.</p>
         </div>
-        <CipherBadge />
+        <CipherBadge label={ready ? "FHE ready" : initializing ? "Initialising fhEVM" : "Awaiting inputs"} />
       </div>
       <label className="grid gap-1 text-sm">
         <span className="text-slate-300">Threshold (encrypted units)</span>
@@ -78,14 +103,22 @@ export default function PoIAttestationPanel() {
       <button
         type="submit"
         className="w-fit rounded bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground"
-        disabled={!ready}
+        disabled={!ready || encrypting}
       >
-        Encrypt &amp; Request Proof
+        {encrypting ? "Encrypting…" : "Encrypt & Request Proof"}
       </button>
+      {formError ? (
+        <p className="rounded border border-red-500/40 bg-red-500/10 p-3 text-xs text-red-200">{formError}</p>
+      ) : null}
+      {fheError ? (
+        <p className="rounded border border-amber-500/40 bg-amber-500/10 p-3 text-xs text-amber-200">{fheError}</p>
+      ) : null}
       {ciphertext ? (
         <div className="rounded border border-emerald-500/50 bg-emerald-500/10 p-3 text-xs text-emerald-200" data-testid="threshold-ciphertext">
           <p className="font-semibold">Encrypted threshold payload</p>
-          <code className="break-all text-emerald-100">{ciphertext}</code>
+          <p>Handle: <code className="break-all text-emerald-100">{ciphertext.handle}</code></p>
+          <p>Proof: <code className="break-all text-emerald-100">{ciphertext.proof}</code></p>
+          <p className="text-emerald-300/80">{ciphertext.summary}</p>
         </div>
       ) : null}
       {result ? (

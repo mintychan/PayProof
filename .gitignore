@@ -11,6 +11,7 @@ apps/web/test-results
 contracts/artifacts
 contracts/cache
 contracts/typechain-types
+contracts/fhevmTemp
 
 # pnpm store (if local)
 .pnpm-store

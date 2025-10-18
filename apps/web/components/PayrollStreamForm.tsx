@@ -3,7 +3,7 @@
 import { FormEvent, useMemo, useState } from "react";
 import CipherBadge from "./CipherBadge";
 import NetworkStatus from "./NetworkStatus";
-import { encryptNumber } from "../lib/crypto/encryption";
+import { useFhevm } from "../providers/FhevmProvider";
 
 const CADENCE_OPTIONS = [
   { label: "Monthly", seconds: 30 * 24 * 60 * 60 },
@@ -12,24 +12,48 @@ const CADENCE_OPTIONS = [
 ];
 
 export default function PayrollStreamForm() {
+  const { encryptNumber, ready, initializing, error: fheError } = useFhevm();
   const [employerAddress, setEmployerAddress] = useState<string>("");
   const [employeeAddress, setEmployeeAddress] = useState<string>("");
   const [rate, setRate] = useState<string>("");
   const [cadence, setCadence] = useState<number>(CADENCE_OPTIONS[0].seconds);
-  const [encryptionPreview, setEncryptionPreview] = useState<string>("");
+  const [encryptionPreview, setEncryptionPreview] = useState<{ handle: string; proof: string; summary: string } | null>(null);
   const [result, setResult] = useState<string>("");
+  const [encrypting, setEncrypting] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
 
   const encryptionReady = useMemo(() => {
-    return Boolean(employerAddress && employeeAddress && rate && Number(rate) > 0);
-  }, [employerAddress, employeeAddress, rate]);
+    return ready && Boolean(employerAddress && employeeAddress && rate && Number(rate) > 0);
+  }, [ready, employerAddress, employeeAddress, rate]);
 
-  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+  const payrollContract = process.env.NEXT_PUBLIC_PAYPROOF_PAYROLL_CONTRACT?.trim() || "0xaAaAaAaaAaAaAaaAaAAAAAAAAaaaAaAaAaaAaaAa";
+
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    const encrypted = encryptNumber(Number(rate));
-    setEncryptionPreview(encrypted);
-    setResult(
-      `Stream for ${employeeAddress.slice(0, 8)}… will accrue ${rate} units every ${cadence / (24 * 60 * 60)} day(s).`
-    );
+    setFormError(null);
+    if (!encryptionReady) {
+      setFormError("fhEVM is still initialising. Please try again in a moment.");
+      return;
+    }
+
+    try {
+      setEncrypting(true);
+      const encrypted = await encryptNumber({
+        value: Number(rate),
+        bitSize: 64,
+        contractAddress: payrollContract,
+        userAddress: employerAddress
+      });
+      setEncryptionPreview(encrypted);
+      setResult(
+        `Stream for ${employeeAddress.slice(0, 8)}… will accrue ${rate} units every ${cadence / (24 * 60 * 60)} day(s). Handle ${encrypted.handle.slice(0, 10)}…`
+      );
+    } catch (err) {
+      const message = (err as Error)?.message ?? "Encryption failed";
+      setFormError(message);
+    } finally {
+      setEncrypting(false);
+    }
   };
 
   return (
@@ -41,7 +65,15 @@ export default function PayrollStreamForm() {
       >
         <div className="flex items-center justify-between">
           <h2 className="text-xl font-semibold text-white">Create Confidential Stream</h2>
-          <CipherBadge label={encryptionReady ? "Encryption ready" : "Add inputs"} />
+          <CipherBadge
+            label={
+              encryptionReady
+                ? "FHE ready"
+                : initializing
+                  ? "Initialising fhEVM"
+                  : "Awaiting inputs"
+            }
+          />
         </div>
         <label className="grid gap-1 text-sm">
           <span className="text-slate-300">Employer wallet</span>
@@ -95,14 +127,26 @@ export default function PayrollStreamForm() {
         <button
           type="submit"
           className="rounded bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground"
-          disabled={!encryptionReady}
+          disabled={!encryptionReady || encrypting}
         >
-          Encrypt &amp; Create Stream
+          {encrypting ? "Encrypting…" : "Encrypt & Create Stream"}
         </button>
+        {formError ? (
+          <p className="rounded border border-red-500/40 bg-red-500/10 p-3 text-xs text-red-200">
+            {formError}
+          </p>
+        ) : null}
+        {fheError ? (
+          <p className="rounded border border-amber-500/40 bg-amber-500/10 p-3 text-xs text-amber-200">
+            {fheError}
+          </p>
+        ) : null}
         {encryptionPreview ? (
           <div className="rounded border border-emerald-500/50 bg-emerald-500/10 p-3 text-xs text-emerald-200" data-testid="encryption-preview">
-            <p className="font-semibold">Encryption payload</p>
-            <code className="break-all text-emerald-100">{encryptionPreview}</code>
+            <p className="font-semibold">Encrypted rate payload</p>
+            <p>Handle: <code className="break-all text-emerald-100">{encryptionPreview.handle}</code></p>
+            <p>Proof: <code className="break-all text-emerald-100">{encryptionPreview.proof}</code></p>
+            <p className="text-emerald-300/80">{encryptionPreview.summary}</p>
           </div>
         ) : null}
         {result ? (

@@ -14,12 +14,15 @@
     "@headlessui/react": "^2.1.8",
     "@tanstack/react-query": "^5.56.2",
     "@wagmi/core": "^2.6.2",
+    "@zama-fhe/relayer-sdk": "^0.2.0",
+    "ethers": "^6.15.0",
     "next": "14.2.5",
     "react": "18.3.1",
     "react-dom": "18.3.1",
     "tailwind-merge": "^2.3.0",
     "viem": "^2.9.14",
-    "wagmi": "^2.10.5"
+    "wagmi": "^2.10.5",
+    "zod": "^3.23.8"
   },
   "devDependencies": {
     "@playwright/test": "^1.45.3",

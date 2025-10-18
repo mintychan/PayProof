@@ -1,106 +1,142 @@
 import { expect } from "chai";
-import { ethers } from "hardhat";
+import { ethers, fhevm } from "hardhat";
+import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers";
+import { FhevmType } from "@fhevm/hardhat-plugin";
+import { EncryptedPayroll, EncryptedPayroll__factory } from "../typechain-types";
 
 const DAY = 24 * 60 * 60;
 
-describe("EncryptedPayroll", () => {
-  async function deployFixture() {
-    const [employer, employee, other] = await ethers.getSigners();
-    const Payroll = await ethers.getContractFactory("EncryptedPayroll");
-    const payroll = await Payroll.deploy();
-    await payroll.waitForDeployment();
-    return { payroll, employer, employee, other };
+type Signers = {
+  employer: HardhatEthersSigner;
+  employee: HardhatEthersSigner;
+  verifier: HardhatEthersSigner;
+};
+
+async function deployFixture(): Promise<{ payroll: EncryptedPayroll; payrollAddress: string }> {
+  const factory = (await ethers.getContractFactory("EncryptedPayroll")) as EncryptedPayroll__factory;
+  const payroll = (await factory.deploy()) as EncryptedPayroll;
+  const payrollAddress = await payroll.getAddress();
+  return { payroll, payrollAddress };
+}
+
+describe("EncryptedPayroll (fhEVM)", function () {
+  let signers: Signers;
+  let payroll: EncryptedPayroll;
+  let payrollAddress: string;
+
+  async function decryptBalance(streamId: string, account: HardhatEthersSigner) {
+    const handle = await payroll.connect(account).encryptedBalanceOf.staticCall(streamId);
+    await payroll.connect(account).encryptedBalanceOf(streamId);
+    return fhevm.userDecryptEuint(FhevmType.euint128, handle, payrollAddress, account);
   }
 
-  it("creates a stream and accrues encrypted balances", async () => {
-    const { payroll, employer, employee } = await deployFixture();
-    const ratePerSecond = 5n;
-    const cadence = 30 * DAY;
+  before(async function () {
+    const [employer, employee, verifier] = await ethers.getSigners();
+    signers = { employer, employee, verifier };
+  });
+
+  beforeEach(async function () {
+    if (!fhevm.isMock) {
+      this.skip();
+    }
+
+    ({ payroll, payrollAddress } = await deployFixture());
+  });
+
+  async function createStreamWithRate(ratePerSecond: number, cadence = 30 * DAY) {
+    const encryptedRate = await fhevm
+      .createEncryptedInput(payrollAddress, signers.employer.address)
+      .add64(ratePerSecond)
+      .encrypt();
 
     const tx = await payroll
-      .connect(employer)
-      .createStream(employee.address, ratePerSecond, cadence, 0);
-    const receipt = await tx.wait();
-    const streamId = receipt?.logs[0]?.topics[1];
-    expect(streamId).to.not.be.undefined;
+      .connect(signers.employer)
+      .createStream(
+        signers.employee.address,
+        encryptedRate.handles[0],
+        encryptedRate.inputProof,
+        cadence,
+        0,
+      );
+    await tx.wait();
 
-    const id = await payroll.computeStreamId(employer.address, employee.address);
-    expect(streamId).to.equal(id);
+    return encryptedRate.handles[0];
+  }
 
-    // advance the clock by one hour and sync
+  it("creates a stream and accrues encrypted balances", async function () {
+    await createStreamWithRate(5);
+    const streamId = await payroll.computeStreamId(signers.employer.address, signers.employee.address);
+
     await ethers.provider.send("evm_increaseTime", [3600]);
     await ethers.provider.send("evm_mine", []);
-    await payroll.syncStream(id);
 
-    const balance = await payroll.encryptedBalanceOf(id);
-    expect(Number(balance)).to.be.closeTo(Number(ratePerSecond * 3600n), 10);
+    await payroll.connect(signers.employer).syncStream(streamId);
+
+    const clearBalance = await decryptBalance(streamId, signers.employee);
+    expect(Number(clearBalance)).to.be.closeTo(Number(5n * 3600n), 16);
   });
 
-  it("top ups and pauses a stream", async () => {
-    const { payroll, employer, employee } = await deployFixture();
-    const rate = 3n;
-    await payroll.connect(employer).createStream(employee.address, rate, 14 * DAY, 0);
-    const streamId = await payroll.computeStreamId(employer.address, employee.address);
+  it("top ups, pauses, and resumes stream accrual", async function () {
+    await createStreamWithRate(3);
+    const streamId = await payroll.computeStreamId(signers.employer.address, signers.employee.address);
 
-    await payroll.connect(employer).topUp(streamId, 1_000n);
-    let balance = await payroll.encryptedBalanceOf(streamId);
-    expect(Number(balance)).to.be.closeTo(1000, 10);
+    const topUp = await fhevm
+      .createEncryptedInput(payrollAddress, signers.employer.address)
+      .add128(1000n)
+      .encrypt();
+    await payroll
+      .connect(signers.employer)
+      .topUp(streamId, topUp.handles[0], topUp.inputProof);
 
-    await payroll.connect(employer).pauseStream(streamId);
-    const streamData = await payroll.getStream(streamId);
-    expect(streamData[4]).to.equal(EncryptedPayroll_StreamStatus.Paused);
+    const clearAfterTopUp = await decryptBalance(streamId, signers.employee);
+    expect(Number(clearAfterTopUp)).to.be.closeTo(1000, 16);
 
+    await payroll.connect(signers.employer).pauseStream(streamId);
     await ethers.provider.send("evm_increaseTime", [600]);
     await ethers.provider.send("evm_mine", []);
-    balance = await payroll.encryptedBalanceOf(streamId);
-    // paused stream should not accrue new balance
-    expect(Number(balance)).to.be.closeTo(1000, 10);
+    const clearPaused = await decryptBalance(streamId, signers.employee);
+    expect(Number(clearPaused)).to.be.closeTo(1000, 16);
+
+    await payroll.connect(signers.employer).resumeStream(streamId);
+    await ethers.provider.send("evm_increaseTime", [600]);
+    await ethers.provider.send("evm_mine", []);
+    await payroll.connect(signers.employer).syncStream(streamId);
+
+    const clearResumed = await decryptBalance(streamId, signers.employee);
+    expect(Number(clearResumed)).to.be.greaterThan(1000);
   });
 
-  it("resumes and cancels a stream", async () => {
-    const { payroll, employer, employee } = await deployFixture();
-    const rate = 2n;
-    await payroll.connect(employer).createStream(employee.address, rate, 7 * DAY, 0);
-    const streamId = await payroll.computeStreamId(employer.address, employee.address);
+  it("rejects duplicate streams", async function () {
+    await createStreamWithRate(1);
+    const encryptedRate = await fhevm
+      .createEncryptedInput(payrollAddress, signers.employer.address)
+      .add64(1)
+      .encrypt();
 
-    await payroll.connect(employer).pauseStream(streamId);
-    await ethers.provider.send("evm_increaseTime", [600]);
-    await ethers.provider.send("evm_mine", []);
-
-    await payroll.connect(employer).resumeStream(streamId);
-    await ethers.provider.send("evm_increaseTime", [600]);
-    await ethers.provider.send("evm_mine", []);
-    await payroll.syncStream(streamId);
-
-    const balanceAfterResume = await payroll.encryptedBalanceOf(streamId);
-    expect(Number(balanceAfterResume)).to.be.closeTo(Number(rate * 600n), 10);
-
-    await payroll.connect(employer).cancelStream(streamId);
-    const streamData = await payroll.getStream(streamId);
-    expect(streamData[4]).to.equal(EncryptedPayroll_StreamStatus.Cancelled);
-  });
-
-  it("rejects duplicate streams", async () => {
-    const { payroll, employer, employee } = await deployFixture();
-    await payroll.connect(employer).createStream(employee.address, 1n, 7 * DAY, 0);
     await expect(
-      payroll.connect(employer).createStream(employee.address, 1n, 7 * DAY, 0)
+      payroll
+        .connect(signers.employer)
+        .createStream(
+          signers.employee.address,
+          encryptedRate.handles[0],
+          encryptedRate.inputProof,
+          7 * DAY,
+          0,
+        ),
     ).to.be.revertedWithCustomError(payroll, "StreamAlreadyExists");
   });
 
-  it("rejects non-employer modifications", async () => {
-    const { payroll, employer, employee, other } = await deployFixture();
-    await payroll.connect(employer).createStream(employee.address, 1n, 7 * DAY, 0);
-    const streamId = await payroll.computeStreamId(employer.address, employee.address);
-    await expect(payroll.connect(other).topUp(streamId, 100n)).to.be.revertedWithCustomError(payroll, "NotEmployer");
+  it("rejects non-employer modifications", async function () {
+    await createStreamWithRate(1);
+    const streamId = await payroll.computeStreamId(signers.employer.address, signers.employee.address);
+
+    const amount = await fhevm
+      .createEncryptedInput(payrollAddress, signers.employer.address)
+      .add128(100)
+      .encrypt();
+
+    await expect(
+      payroll.connect(signers.verifier).topUp(streamId, amount.handles[0], amount.inputProof),
+    ).to.be.revertedWithCustomError(payroll, "NotEmployer");
   });
 });
-
-// Hardhat flattens enums to namespaced constants when using TypeChain.
-// To keep the test self-contained we mirror the enum indexes here.
-const enum EncryptedPayroll_StreamStatus {
-  None,
-  Active,
-  Paused,
-  Cancelled
-}

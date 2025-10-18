@@ -1,9 +1,12 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
+import {FHE, ebool, euint64, euint128, externalEuint64, externalEuint128} from "@fhevm/solidity/lib/FHE.sol";
+import {SepoliaConfig} from "@fhevm/solidity/config/ZamaConfig.sol";
+
 /// @title EncryptedPayroll
-/// @notice Simplified confidential payroll stream manager for fhEVM demos.
-contract EncryptedPayroll {
+/// @notice Confidential payroll stream manager built on Zama's fhEVM.
+contract EncryptedPayroll is SepoliaConfig {
     enum StreamStatus {
         None,
         Active,
@@ -14,11 +17,11 @@ contract EncryptedPayroll {
     struct Stream {
         address employer;
         address employee;
-        uint256 encRatePerSecond;
+        euint64 ratePerSecond;
         uint64 startTime;
         uint32 cadenceInSeconds;
         StreamStatus status;
-        uint256 encAccrued;
+        euint128 accrued;
         uint64 lastAccruedAt;
     }
 
@@ -28,12 +31,12 @@ contract EncryptedPayroll {
         bytes32 indexed streamId,
         address indexed employer,
         address indexed employee,
-        uint256 encRatePerSecond,
+        bytes32 rateHandle,
         uint32 cadenceInSeconds,
         uint64 startTime
     );
 
-    event StreamToppedUp(bytes32 indexed streamId, uint256 encAmount);
+    event StreamToppedUp(bytes32 indexed streamId, bytes32 amountHandle);
     event StreamPaused(bytes32 indexed streamId);
     event StreamResumed(bytes32 indexed streamId);
     event StreamCancelled(bytes32 indexed streamId);
@@ -59,36 +62,54 @@ contract EncryptedPayroll {
         return keccak256(abi.encode(employer, employee));
     }
 
-    /// @notice Create a new confidential payroll stream.
+    /// @notice Create a new confidential payroll stream with encrypted per-second rate.
     function createStream(
         address employee,
-        uint256 encRatePerSecond,
+        externalEuint64 encRatePerSecond,
+        bytes calldata rateProof,
         uint32 cadenceInSeconds,
         uint64 startTime
     ) external returns (bytes32 streamId) {
         if (employee == address(0)) revert InvalidEmployee();
-        if (encRatePerSecond == 0) revert InvalidRate();
 
         streamId = computeStreamId(msg.sender, employee);
         Stream storage existing = streams[streamId];
         if (existing.status != StreamStatus.None) revert StreamAlreadyExists();
 
-        uint64 start = startTime == 0 ? uint64(block.timestamp) : startTime;
-        streams[streamId] = Stream({
-            employer: msg.sender,
-            employee: employee,
-            encRatePerSecond: encRatePerSecond,
-            startTime: start,
-            cadenceInSeconds: cadenceInSeconds,
-            status: StreamStatus.Active,
-            encAccrued: 0,
-            lastAccruedAt: uint64(block.timestamp)
-        });
+        euint64 rate = FHE.fromExternal(encRatePerSecond, rateProof);
+        if (!FHE.isInitialized(rate)) revert InvalidRate();
 
-        emit StreamCreated(streamId, msg.sender, employee, encRatePerSecond, cadenceInSeconds, start);
+        uint64 effectiveStart = startTime == 0 ? uint64(block.timestamp) : startTime;
+
+        Stream storage stream = streams[streamId];
+        stream.employer = msg.sender;
+        stream.employee = employee;
+        stream.ratePerSecond = rate;
+        stream.startTime = effectiveStart;
+        stream.cadenceInSeconds = cadenceInSeconds;
+        stream.status = StreamStatus.Active;
+        stream.accrued = FHE.asEuint128(uint128(0));
+        stream.lastAccruedAt = uint64(block.timestamp);
+
+        FHE.allowThis(stream.ratePerSecond);
+        FHE.allow(stream.ratePerSecond, msg.sender);
+        FHE.allow(stream.ratePerSecond, employee);
+
+        FHE.allowThis(stream.accrued);
+        FHE.allow(stream.accrued, msg.sender);
+        FHE.allow(stream.accrued, employee);
+
+        emit StreamCreated(
+            streamId,
+            msg.sender,
+            employee,
+            euint64.unwrap(stream.ratePerSecond),
+            cadenceInSeconds,
+            effectiveStart
+        );
     }
 
-    /// @notice Accrues encrypted balance based on elapsed time.
+    /// @notice Accrues encrypted balance based on elapsed time since last update.
     function syncStream(bytes32 streamId) public streamExists(streamId) {
         Stream storage stream = streams[streamId];
         if (stream.status != StreamStatus.Active) {
@@ -98,17 +119,40 @@ contract EncryptedPayroll {
         if (block.timestamp <= stream.lastAccruedAt) {
             return;
         }
-        uint256 elapsed = block.timestamp - stream.lastAccruedAt;
-        uint256 increment = elapsed * stream.encRatePerSecond;
-        stream.encAccrued += increment;
+
+        uint256 elapsedSeconds = block.timestamp - stream.lastAccruedAt;
+        euint64 elapsedEnc = FHE.asEuint64(uint64(elapsedSeconds));
+
+        euint64 rate = stream.ratePerSecond;
+        FHE.allowThis(rate);
+        euint64 increment64 = FHE.mul(rate, elapsedEnc);
+        euint128 increment = FHE.asEuint128(increment64);
+
+        stream.accrued = FHE.add(stream.accrued, increment);
+
+        FHE.allowThis(stream.accrued);
+        FHE.allow(stream.accrued, stream.employee);
+        FHE.allow(stream.accrued, stream.employer);
+
         stream.lastAccruedAt = uint64(block.timestamp);
     }
 
     /// @notice Adds an encrypted top-up amount (e.g. bonus or manual adjustment).
-    function topUp(bytes32 streamId, uint256 encAmount) external streamExists(streamId) onlyEmployer(streamId) {
+    function topUp(
+        bytes32 streamId,
+        externalEuint128 encAmount,
+        bytes calldata amountProof
+    ) external streamExists(streamId) onlyEmployer(streamId) {
         syncStream(streamId);
-        streams[streamId].encAccrued += encAmount;
-        emit StreamToppedUp(streamId, encAmount);
+        Stream storage stream = streams[streamId];
+        euint128 addition = FHE.fromExternal(encAmount, amountProof);
+
+        stream.accrued = FHE.add(stream.accrued, addition);
+        FHE.allowThis(stream.accrued);
+        FHE.allow(stream.accrued, stream.employee);
+        FHE.allow(stream.accrued, stream.employer);
+
+        emit StreamToppedUp(streamId, euint128.unwrap(addition));
     }
 
     function pauseStream(bytes32 streamId) external streamExists(streamId) onlyEmployer(streamId) {
@@ -121,7 +165,7 @@ contract EncryptedPayroll {
     }
 
     function resumeStream(bytes32 streamId) external streamExists(streamId) onlyEmployer(streamId) {
-        Stream storage stream = streams[streamId];
+      Stream storage stream = streams[streamId];
         if (stream.status == StreamStatus.Paused) {
             stream.status = StreamStatus.Active;
             stream.lastAccruedAt = uint64(block.timestamp);
@@ -136,28 +180,33 @@ contract EncryptedPayroll {
         emit StreamCancelled(streamId);
     }
 
-    /// @notice Returns ciphertext balance (includes accrued time delta) for a stream.
-    function encryptedBalanceOf(bytes32 streamId) public view streamExists(streamId) returns (uint256) {
+    /// @notice Returns the encrypted balance for a stream and grants transient access to the caller.
+    function encryptedBalanceOf(bytes32 streamId) public streamExists(streamId) returns (euint128) {
         Stream storage stream = streams[streamId];
-        uint256 balance = stream.encAccrued;
-        if (stream.status == StreamStatus.Active && block.timestamp > stream.lastAccruedAt) {
-            uint256 elapsed = block.timestamp - stream.lastAccruedAt;
-            balance += elapsed * stream.encRatePerSecond;
-        }
-        return balance;
+        euint128 allowed = FHE.allowTransient(stream.accrued, msg.sender);
+        return allowed;
     }
 
-    /// @notice Project encrypted income for a lookback window.
-    function projectedIncome(bytes32 streamId, uint256 lookbackDays) public view streamExists(streamId) returns (uint256) {
+    /// @notice Returns projected encrypted income over a lookback window (in days) and grants transient access.
+    function projectedIncome(bytes32 streamId, uint256 lookbackDays) public streamExists(streamId) returns (euint128) {
         Stream storage stream = streams[streamId];
         if (stream.status == StreamStatus.Cancelled) {
-            return 0;
+            euint128 zero = FHE.allowTransient(FHE.asEuint128(uint128(0)), msg.sender);
+            return zero;
         }
+        euint64 rate = stream.ratePerSecond;
+        FHE.allowThis(rate);
+
         uint256 secondsWindow = lookbackDays * 1 days;
-        return stream.encRatePerSecond * secondsWindow;
+        euint64 windowEnc = FHE.asEuint64(uint64(secondsWindow));
+        euint64 total64 = FHE.mul(rate, windowEnc);
+        euint128 total128 = FHE.asEuint128(total64);
+
+        euint128 allowed = FHE.allowTransient(total128, msg.sender);
+        return allowed;
     }
 
-    /// @notice Returns stream metadata for UI/analytics.
+    /// @notice View helper returning metadata (does not mutate encrypted values).
     function getStream(bytes32 streamId)
         external
         view
@@ -165,10 +214,10 @@ contract EncryptedPayroll {
         returns (
             address employer,
             address employee,
-            uint256 encRatePerSecond,
+            bytes32 rateHandle,
             uint32 cadenceInSeconds,
             StreamStatus status,
-            uint256 encAccrued,
+            uint64 startTime,
             uint64 lastAccruedAt
         )
     {
@@ -176,10 +225,10 @@ contract EncryptedPayroll {
         return (
             stream.employer,
             stream.employee,
-            stream.encRatePerSecond,
+            euint64.unwrap(stream.ratePerSecond),
             stream.cadenceInSeconds,
             stream.status,
-            encryptedBalanceOf(streamId),
+            stream.startTime,
             stream.lastAccruedAt
         );
     }
