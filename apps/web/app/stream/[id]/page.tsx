@@ -1,14 +1,14 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, use } from "react";
 import { useAccount, useWalletClient } from "wagmi";
 import { encryptedPayrollContract, StreamStatus } from "../../../lib/contracts/encryptedPayrollContract";
-import { PageHeader } from "../../../components/ui/PageHeader";
 import { WalletConnectPrompt } from "../../../components/WalletConnect";
 import { useFhevm } from "../../../providers/FhevmProvider";
 import { formatEther, ethers } from "ethers";
 
-export default function EncryptedStreamPage({ params }: { params: { id: string } }) {
+export default function EncryptedStreamPage({ params }: { params: Promise<{ id: string }> }) {
+  const resolvedParams = use(params);
   const { address, isConnected } = useAccount();
   const { ready: fheReady, initializing, instance } = useFhevm();
   const { data: walletClient } = useWalletClient();
@@ -36,7 +36,7 @@ export default function EncryptedStreamPage({ params }: { params: { id: string }
     const fetchStream = async () => {
       setLoading(true);
       try {
-        const data = await encryptedPayrollContract.getStream(params.id);
+        const data = await encryptedPayrollContract.getStream(resolvedParams.id);
         setStream(data);
       } catch (error) {
         console.error("Error fetching stream:", error);
@@ -45,10 +45,10 @@ export default function EncryptedStreamPage({ params }: { params: { id: string }
       }
     };
 
-    if (params.id) {
+    if (resolvedParams.id) {
       fetchStream();
     }
-  }, [params.id]);
+  }, [resolvedParams.id]);
 
   if (!isConnected) {
     return <WalletConnectPrompt />;
@@ -170,189 +170,398 @@ export default function EncryptedStreamPage({ params }: { params: { id: string }
     }
   };
 
-  return (
-    <section className="space-y-8">
-      <PageHeader
-        title={`Encrypted Stream`}
-        subtitle="View encrypted payroll stream with privacy-preserving fhEVM technology"
-        actions={
-          <a
-            href={`https://sepolia.etherscan.io/address/${process.env.NEXT_PUBLIC_PAYPROOF_PAYROLL_CONTRACT}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-slate-900/70 px-4 py-2 text-xs font-medium text-slate-200 transition hover:border-sky-400/40 hover:text-white"
-          >
-            View Contract on Explorer
-          </a>
-        }
-      />
+  // Calculate streaming progress (mock for now - would need real-time updates)
+  const getStreamProgress = () => {
+    if (!stream) return 0;
+    const now = Math.floor(Date.now() / 1000);
+    const elapsed = now - stream.startTime;
+    const cadenceProgress = (elapsed % stream.cadenceInSeconds) / stream.cadenceInSeconds;
+    return cadenceProgress * 100;
+  };
 
-      <div className="grid gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
-        {/* Left side - Stream Info */}
+  return (
+    <section className="min-h-screen p-6">
+      {/* Breadcrumb */}
+      <div className="mb-8 flex items-center gap-2 text-sm text-slate-400">
+        <a href="/employee" className="hover:text-slate-200 transition">Payments</a>
+        <span>›</span>
+        <span className="text-slate-200">Stream</span>
+        <span>›</span>
+        <span>Pay at a constant rate. Top up over time.</span>
+      </div>
+
+      {/* Back button and title */}
+      <div className="mb-8 flex items-center gap-4">
+        <a
+          href="/employee"
+          className="flex h-10 w-10 items-center justify-center rounded-full bg-slate-900/60 border border-white/5 hover:border-white/10 transition"
+        >
+          <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+          </svg>
+        </a>
+        <h1 className="text-2xl font-semibold text-white">Stream #{stream.streamId.slice(0, 8)}...</h1>
+      </div>
+
+      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
+        {/* Left side - Circular Visualization */}
         <div className="space-y-6">
-          {/* Stream Status Card */}
-          <div className="rounded-3xl border border-white/5 bg-slate-950/70 p-6">
-            <div className="flex items-start justify-between mb-4">
-              <h3 className="text-lg font-semibold text-white">Stream Status</h3>
-              <span
-                className={`rounded-full px-3 py-1 text-xs font-medium ${
-                  stream.status === StreamStatus.Active
-                    ? "bg-emerald-500/20 text-emerald-400"
-                    : stream.status === StreamStatus.Paused
-                    ? "bg-amber-500/20 text-amber-400"
-                    : "bg-slate-500/20 text-slate-400"
-                }`}
-              >
-                {stream.status === StreamStatus.Active
-                  ? "🟢 Active"
-                  : stream.status === StreamStatus.Paused
-                  ? "⏸️ Paused"
-                  : "⏹️ Cancelled"}
-              </span>
+          {/* Circular Progress Visualization */}
+          <div className="relative flex items-center justify-center rounded-3xl border border-white/5 bg-slate-900/40 p-12 backdrop-blur">
+            {/* Circular Progress */}
+            <div className="relative h-80 w-80">
+              <svg className="h-full w-full -rotate-90 transform">
+                {/* Background circle */}
+                <circle
+                  cx="160"
+                  cy="160"
+                  r="140"
+                  fill="none"
+                  stroke="rgba(148, 163, 184, 0.1)"
+                  strokeWidth="8"
+                />
+                {/* Progress circle with gradient */}
+                <circle
+                  cx="160"
+                  cy="160"
+                  r="140"
+                  fill="none"
+                  stroke="url(#streamGradient)"
+                  strokeWidth="8"
+                  strokeLinecap="round"
+                  strokeDasharray={`${getStreamProgress() * 8.8} 880`}
+                  className="transition-all duration-1000"
+                />
+                <defs>
+                  <linearGradient id="streamGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                    <stop offset="0%" stopColor="#3b82f6" />
+                    <stop offset="100%" stopColor="#8b5cf6" />
+                  </linearGradient>
+                </defs>
+              </svg>
+
+              {/* Center content */}
+              <div className="absolute inset-0 flex flex-col items-center justify-center">
+                {/* Icon */}
+                <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-gradient-to-br from-blue-500/20 to-purple-500/20 border border-white/10">
+                  <svg className="h-8 w-8 text-blue-400" fill="currentColor" viewBox="0 0 20 20">
+                    <path d="M8.433 7.418c.155-.103.346-.196.567-.267v1.698a2.305 2.305 0 01-.567-.267C8.07 8.34 8 8.114 8 8c0-.114.07-.34.433-.582zM11 12.849v-1.698c.22.071.412.164.567.267.364.243.433.468.433.582 0 .114-.07.34-.433.582a2.305 2.305 0 01-.567.267z" />
+                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-13a1 1 0 10-2 0v.092a4.535 4.535 0 00-1.676.662C6.602 6.234 6 7.009 6 8c0 .99.602 1.765 1.324 2.246.48.32 1.054.545 1.676.662v1.941c-.391-.127-.68-.317-.843-.504a1 1 0 10-1.51 1.31c.562.649 1.413 1.076 2.353 1.253V15a1 1 0 102 0v-.092a4.535 4.535 0 001.676-.662C13.398 13.766 14 12.991 14 12c0-.99-.602-1.765-1.324-2.246A4.535 4.535 0 0011 9.092V7.151c.391.127.68.317.843.504a1 1 0 101.511-1.31c-.563-.649-1.413-1.076-2.354-1.253V5z" clipRule="evenodd" />
+                  </svg>
+                </div>
+
+                {/* Streamed amount */}
+                <div className="mb-2 text-center">
+                  <div className="text-5xl font-bold bg-gradient-to-br from-white to-slate-300 bg-clip-text text-transparent">
+                    {decryptedRate ? `${parseFloat(decryptedRate).toFixed(6)}` : '0.000000'}
+                  </div>
+                  <p className="mt-2 text-sm text-slate-400">
+                    {decryptedRate ? `${parseFloat(decryptedRate).toFixed(6)} ETH / Month` : 'ETH 0.000 / Month'}
+                  </p>
+                </div>
+              </div>
+
+              {/* Small status indicator */}
+              <div className="absolute -top-2 -right-2">
+                <div className={`h-4 w-4 rounded-full ${
+                  stream.status === StreamStatus.Active ? 'bg-emerald-500' :
+                  stream.status === StreamStatus.Paused ? 'bg-amber-500' :
+                  'bg-slate-500'
+                } shadow-lg`} />
+              </div>
             </div>
 
-            <div className="space-y-3">
-              <div>
-                <p className="text-xs text-slate-500">Stream ID</p>
-                <p className="mt-1 font-mono text-sm text-slate-300 break-all">
-                  {stream.streamId}
-                </p>
-              </div>
-
-              <div>
-                <p className="text-xs text-slate-500">Started</p>
-                <p className="mt-1 text-sm text-white">
-                  {new Date(stream.startTime * 1000).toLocaleString()}
-                </p>
-              </div>
-
-              <div>
-                <p className="text-xs text-slate-500">Cadence</p>
-                <p className="mt-1 text-sm text-white">
-                  Every {stream.cadenceInSeconds / (24 * 60 * 60)} days
-                </p>
-              </div>
+            {/* Bottom info */}
+            <div className="absolute bottom-12 flex gap-3">
+              <button className="flex items-center gap-2 rounded-full border border-white/10 bg-slate-900/60 px-4 py-2 text-xs backdrop-blur transition hover:border-white/20">
+                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
+                </svg>
+              </button>
+              <button className="flex items-center gap-2 rounded-full border border-white/10 bg-slate-900/60 px-4 py-2 text-xs backdrop-blur transition hover:border-white/20">
+                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                </svg>
+              </button>
             </div>
           </div>
 
-          {/* Authorization Card */}
-          <div className={`rounded-3xl border p-6 ${
-            isAuthorized
-              ? "border-emerald-500/30 bg-emerald-500/5"
-              : "border-red-500/30 bg-red-500/5"
-          }`}>
-            <h3 className="text-lg font-semibold text-white mb-2">
-              {isAuthorized ? "✓ Authorized" : "⚠️ Not Authorized"}
-            </h3>
-            <p className="text-sm text-slate-300">
-              {isAuthorized
-                ? `You are the ${viewRole} and can view encrypted details.`
-                : "You are not authorized to decrypt this stream's data."}
-            </p>
+          {/* Action Buttons */}
+          <div className="grid grid-cols-2 gap-4">
+            <button
+              onClick={handleDecrypt}
+              disabled={decrypting || !fheReady || !isAuthorized || decryptedRate !== null}
+              className="rounded-2xl bg-gradient-to-r from-blue-600 to-blue-500 px-6 py-3 text-sm font-semibold text-white transition hover:brightness-110 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+            >
+              {decrypting && (
+                <div className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent"></div>
+              )}
+              {decrypting ? "Decrypting..." : decryptedRate ? "✓ Decrypted" : !fheReady ? "Initializing..." : "🔓 Decrypt"}
+            </button>
+            <button className="rounded-2xl border border-white/10 bg-slate-900/40 px-6 py-3 text-sm font-semibold text-white transition hover:border-white/20 backdrop-blur">
+              Details
+            </button>
           </div>
         </div>
 
-        {/* Right side - Details */}
+        {/* Right side - Attributes */}
         <div className="space-y-6">
-          {/* Participants */}
-          <div className="rounded-3xl border border-white/5 bg-slate-950/70 p-6">
-            <h3 className="text-lg font-semibold text-white mb-4">Participants</h3>
-            <div className="space-y-3">
-              <div className="rounded-2xl border border-white/5 bg-slate-900/60 px-4 py-3">
-                <p className="text-xs text-slate-500">Employer</p>
-                <div className="mt-1 flex items-center justify-between">
-                  <p className="font-mono text-sm text-white">
-                    {stream.employer.slice(0, 10)}...{stream.employer.slice(-8)}
-                  </p>
-                  {address?.toLowerCase() === stream.employer.toLowerCase() && (
-                    <span className="rounded-full bg-sky-500/20 px-2 py-0.5 text-xs text-sky-400">
-                      You
-                    </span>
-                  )}
+          {/* Attributes Header */}
+          <div className="flex items-center justify-between">
+            <h2 className="text-lg font-semibold text-white">Attributes</h2>
+            <div className="flex gap-2">
+              <button className="rounded-full border border-white/10 bg-slate-900/40 px-3 py-1.5 text-xs text-slate-300 backdrop-blur transition hover:border-white/20">
+                Select
+              </button>
+              <button className="rounded-full border border-white/10 bg-slate-900/40 px-3 py-1.5 text-xs text-slate-300 backdrop-blur transition hover:border-white/20">
+                Share Link
+              </button>
+            </div>
+          </div>
+
+          {/* Participants Row */}
+          <div className="grid grid-cols-2 gap-4">
+            <div className="group rounded-2xl border border-white/5 bg-slate-900/40 p-4 backdrop-blur transition hover:border-white/10">
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-br from-blue-500/20 to-blue-600/20">
+                  <svg className="h-5 w-5 text-blue-400" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clipRule="evenodd" />
+                  </svg>
+                </div>
+                <div className="flex-1">
+                  <p className="text-xs text-slate-500">Your chainf...eth</p>
+                  <div className="mt-1 flex items-center gap-2">
+                    <svg className="h-3 w-3 text-slate-400" fill="currentColor" viewBox="0 0 20 20">
+                      <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" />
+                    </svg>
+                  </div>
                 </div>
               </div>
+            </div>
 
-              <div className="rounded-2xl border border-white/5 bg-slate-900/60 px-4 py-3">
-                <p className="text-xs text-slate-500">Employee</p>
-                <div className="mt-1 flex items-center justify-between">
-                  <p className="font-mono text-sm text-white">
-                    {stream.employee.slice(0, 10)}...{stream.employee.slice(-8)}
-                  </p>
-                  {address?.toLowerCase() === stream.employee.toLowerCase() && (
-                    <span className="rounded-full bg-violet-500/20 px-2 py-0.5 text-xs text-violet-400">
-                      You
-                    </span>
-                  )}
+            <div className="group rounded-2xl border border-white/5 bg-slate-900/40 p-4 backdrop-blur transition hover:border-white/10">
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-br from-amber-500/20 to-orange-500/20">
+                  <svg className="h-5 w-5 text-amber-400" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clipRule="evenodd" />
+                  </svg>
+                </div>
+                <div className="flex-1">
+                  <p className="text-xs text-slate-500">0xdf1d...a75</p>
                 </div>
               </div>
             </div>
           </div>
 
-          {/* Encrypted Data */}
-          <div className="rounded-3xl border border-white/5 bg-slate-950/70 p-6">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold text-white">🔒 Encrypted Data</h3>
-              {fheReady ? (
-                <span className="rounded-full bg-emerald-500/20 px-2 py-1 text-xs text-emerald-400">
-                  FHE Ready
-                </span>
-              ) : initializing ? (
-                <span className="rounded-full bg-amber-500/20 px-2 py-1 text-xs text-amber-400">
-                  Initializing...
-                </span>
-              ) : null}
+          {/* Attribute Grid */}
+          <div className="grid grid-cols-2 gap-4">
+            {/* Shape */}
+            <div className="rounded-2xl border border-white/5 bg-slate-900/40 p-4 backdrop-blur">
+              <div className="flex items-center gap-3">
+                <svg className="h-5 w-5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4" />
+                </svg>
+                <div>
+                  <p className="text-xs text-slate-500">Shape</p>
+                  <p className="mt-1 text-sm font-medium text-white">Flow</p>
+                </div>
+              </div>
             </div>
 
-            <div className="space-y-3">
-              <div className="rounded-2xl border border-violet-500/20 bg-violet-500/5 px-4 py-3">
-                <p className="text-xs text-violet-400 mb-2">Encrypted Rate Handle</p>
-                <p className="font-mono text-xs text-slate-300 break-all">
-                  {stream.rateHandle}
-                </p>
+            {/* Status */}
+            <div className="rounded-2xl border border-white/5 bg-slate-900/40 p-4 backdrop-blur">
+              <div className="flex items-center gap-3">
+                <svg className="h-5 w-5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                </svg>
+                <div>
+                  <p className="text-xs text-slate-500">Status</p>
+                  <p className="mt-1 text-sm font-medium text-white">
+                    {stream.status === StreamStatus.Active ? "Streaming" :
+                     stream.status === StreamStatus.Paused ? "Paused" : "Cancelled"}
+                  </p>
+                </div>
               </div>
+            </div>
 
-              {decryptedRate && (
-                <div className="rounded-2xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3">
-                  <p className="text-xs text-emerald-400 mb-2">✓ Decrypted Rate</p>
-                  <p className="text-2xl font-semibold text-emerald-300">
-                    {parseFloat(decryptedRate).toFixed(6)} ETH/month
-                  </p>
-                  <p className="text-xs text-emerald-400/80 mt-2">
-                    ≈ {(parseFloat(decryptedRate) / 30).toFixed(8)} ETH/day
+            {/* Rate/Month */}
+            <div className="rounded-2xl border border-white/5 bg-slate-900/40 p-4 backdrop-blur">
+              <div className="flex items-center gap-3">
+                <svg className="h-5 w-5 text-slate-400" fill="currentColor" viewBox="0 0 20 20">
+                  <path d="M8.433 7.418c.155-.103.346-.196.567-.267v1.698a2.305 2.305 0 01-.567-.267C8.07 8.34 8 8.114 8 8c0-.114.07-.34.433-.582zM11 12.849v-1.698c.22.071.412.164.567.267.364.243.433.468.433.582 0 .114-.07.34-.433.582a2.305 2.305 0 01-.567.267z" />
+                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-13a1 1 0 10-2 0v.092a4.535 4.535 0 00-1.676.662C6.602 6.234 6 7.009 6 8c0 .99.602 1.765 1.324 2.246.48.32 1.054.545 1.676.662v1.941c-.391-.127-.68-.317-.843-.504a1 1 0 10-1.51 1.31c.562.649 1.413 1.076 2.353 1.253V15a1 1 0 102 0v-.092a4.535 4.535 0 001.676-.662C13.398 13.766 14 12.991 14 12c0-.99-.602-1.765-1.324-2.246A4.535 4.535 0 0011 9.092V7.151c.391.127.68.317.843.504a1 1 0 101.511-1.31c-.563-.649-1.413-1.076-2.354-1.253V5z" clipRule="evenodd" />
+                </svg>
+                <div>
+                  <p className="text-xs text-slate-500">Rate/Month</p>
+                  <p className="mt-1 text-sm font-medium text-white">
+                    {decryptedRate ? `${parseFloat(decryptedRate).toFixed(4)} ETH` : '🔒 Encrypted'}
                   </p>
                 </div>
-              )}
+              </div>
+            </div>
 
-              {decryptError && (
-                <div className="rounded-2xl border border-red-500/30 bg-red-500/10 px-4 py-3">
-                  <p className="text-xs text-red-400">{decryptError}</p>
+            {/* Chain */}
+            <div className="rounded-2xl border border-white/5 bg-slate-900/40 p-4 backdrop-blur">
+              <div className="flex items-center gap-3">
+                <svg className="h-5 w-5 text-slate-400" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M11.3 1.046A1 1 0 0112 2v5h4a1 1 0 01.82 1.573l-7 10A1 1 0 018 18v-5H4a1 1 0 01-.82-1.573l7-10a1 1 0 011.12-.38z" clipRule="evenodd" />
+                </svg>
+                <div>
+                  <p className="text-xs text-slate-500">Chain</p>
+                  <p className="mt-1 text-sm font-medium text-white">Ethereum</p>
                 </div>
-              )}
+              </div>
+            </div>
 
-              {isAuthorized && !decryptedRate && (
-                <button
-                  onClick={handleDecrypt}
-                  disabled={decrypting || !fheReady}
-                  className="w-full rounded-2xl bg-gradient-to-r from-violet-500 to-purple-500 px-4 py-3 text-sm font-semibold text-white transition hover:brightness-110 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-                >
-                  {decrypting && (
-                    <div className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent"></div>
-                  )}
-                  {decrypting ? "Decrypting..." : !fheReady ? "Waiting for fhEVM..." : "🔓 Decrypt Amount"}
+            {/* In debt since */}
+            <div className="rounded-2xl border border-white/5 bg-slate-900/40 p-4 backdrop-blur">
+              <div className="flex items-center gap-3">
+                <svg className="h-5 w-5 text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <div>
+                  <p className="text-xs text-slate-500">In debt since</p>
+                  <p className="mt-1 text-sm font-medium text-white">
+                    {new Date(stream.startTime * 1000).toLocaleDateString()}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Started on */}
+            <div className="rounded-2xl border border-white/5 bg-slate-900/40 p-4 backdrop-blur">
+              <div className="flex items-center gap-3">
+                <svg className="h-5 w-5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                </svg>
+                <div>
+                  <p className="text-xs text-slate-500">Started on</p>
+                  <p className="mt-1 text-sm font-medium text-white">
+                    {new Date(stream.startTime * 1000).toLocaleString()}
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Stream Details */}
+          <div className="space-y-3 rounded-2xl border border-white/5 bg-slate-900/40 p-5 backdrop-blur">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="h-2 w-2 rounded-full bg-blue-500"></div>
+                <span className="text-sm text-slate-300">Streamed amount</span>
+              </div>
+              <span className="font-mono text-sm font-medium text-white">USDC 0.000637</span>
+            </div>
+
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <svg className="h-4 w-4 text-amber-400" fill="currentColor" viewBox="0 0 20 20">
+                  <path d="M8.433 7.418c.155-.103.346-.196.567-.267v1.698a2.305 2.305 0 01-.567-.267C8.07 8.34 8 8.114 8 8c0-.114.07-.34.433-.582zM11 12.849v-1.698c.22.071.412.164.567.267.364.243.433.468.433.582 0 .114-.07.34-.433.582a2.305 2.305 0 01-.567.267z" />
+                </svg>
+                <span className="text-sm text-slate-300">Withdrawn amount</span>
+              </div>
+              <span className="font-mono text-sm font-medium text-white">USDC 0</span>
+            </div>
+
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <svg className="h-4 w-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <span className="text-sm text-slate-300">Available to withdraw</span>
+              </div>
+              <span className="font-mono text-sm font-medium text-white">USDC 0</span>
+            </div>
+
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <svg className="h-4 w-4 text-red-400" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+                </svg>
+                <span className="text-sm text-slate-300">Debt</span>
+              </div>
+              <span className="font-mono text-sm font-medium text-white">USDC 0.000637</span>
+            </div>
+
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="h-2 w-2 rounded-full bg-purple-500"></div>
+                <span className="text-sm text-slate-300">Refundable</span>
+              </div>
+              <span className="font-mono text-sm font-medium text-white">USDC 0</span>
+            </div>
+          </div>
+
+          {/* Debt Notice */}
+          <div className="rounded-2xl border border-white/5 bg-slate-900/40 p-4 backdrop-blur">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <svg className="h-5 w-5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                </svg>
+                <div>
+                  <p className="text-xs text-slate-400">The stream has been in debt since</p>
+                  <p className="mt-1 text-sm text-white">{new Date(stream.startTime * 1000).toLocaleString()}</p>
+                </div>
+              </div>
+              <div className="flex gap-2">
+                <button className="rounded-full border border-white/10 bg-slate-900/60 p-2 transition hover:border-white/20">
+                  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                  </svg>
                 </button>
-              )}
+                <button className="rounded-full border border-white/10 bg-slate-900/60 p-2 transition hover:border-white/20">
+                  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
+                  </svg>
+                </button>
+              </div>
             </div>
           </div>
 
-          {/* Privacy Notice */}
-          <div className="rounded-3xl border border-sky-500/20 bg-sky-500/5 p-6">
-            <h4 className="text-sm font-semibold text-sky-200 mb-2">🔐 Privacy Protection</h4>
-            <p className="text-xs text-sky-300/80 leading-relaxed">
-              This stream uses fully homomorphic encryption (fhEVM). The salary rate is encrypted
-              and stored on-chain. Only the employer and employee can decrypt the actual amounts.
-              Third parties can verify income thresholds without learning the specific salary amount.
-            </p>
+          {/* Actions */}
+          <div>
+            <h3 className="mb-4 text-sm font-semibold text-white">Actions</h3>
+            <div className="grid grid-cols-2 gap-4">
+              <button className="rounded-2xl border border-white/5 bg-slate-900/40 px-4 py-3 text-sm font-medium text-white backdrop-blur transition hover:border-white/10">
+                Details
+              </button>
+              <button className="rounded-2xl border border-white/5 bg-slate-900/40 px-4 py-3 text-sm font-medium text-white backdrop-blur transition hover:border-white/10">
+                History
+              </button>
+              <button className="rounded-2xl border border-white/5 bg-slate-900/40 px-4 py-3 text-sm font-medium text-white backdrop-blur transition hover:border-white/10">
+                Withdraw
+              </button>
+              <button className="rounded-2xl border border-white/5 bg-slate-900/40 px-4 py-3 text-sm font-medium text-white backdrop-blur transition hover:border-white/10">
+                Top Up
+              </button>
+            </div>
           </div>
+
+          {/* Decryption Section */}
+          {decryptedRate && (
+            <div className="rounded-2xl border border-emerald-500/30 bg-emerald-500/5 p-5 backdrop-blur">
+              <div className="flex items-center gap-3 mb-3">
+                <svg className="h-5 w-5 text-emerald-400" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                </svg>
+                <h4 className="text-sm font-semibold text-emerald-200">Decrypted Amount</h4>
+              </div>
+              <p className="text-2xl font-bold text-emerald-300 mb-2">
+                {parseFloat(decryptedRate).toFixed(6)} ETH/month
+              </p>
+              <p className="text-xs text-emerald-400/80">
+                ≈ {(parseFloat(decryptedRate) / 30).toFixed(8)} ETH/day
+              </p>
+            </div>
+          )}
+
+          {decryptError && (
+            <div className="rounded-2xl border border-red-500/30 bg-red-500/5 p-4 backdrop-blur">
+              <p className="text-sm text-red-300">{decryptError}</p>
+            </div>
+          )}
         </div>
       </div>
     </section>

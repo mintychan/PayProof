@@ -34,7 +34,7 @@ PayProof solves a critical privacy problem in blockchain-based payroll: how to p
 - Tiering: A (≥2× threshold), B (≥1.1× threshold), C (meets threshold)
 - Verifiers decrypt attestation results without learning exact income
 
-### Frontend (Next.js 14 + TypeScript)
+### Frontend (Next.js 15 + TypeScript)
 
 **Three-persona architecture:**
 
@@ -44,7 +44,7 @@ PayProof solves a critical privacy problem in blockchain-based payroll: how to p
 
 **Tech Stack:**
 
-- Next.js 14 with App Router
+- Next.js 15 with App Router
 - Zama fhEVM Relayer SDK (`@zama-fhe/relayer-sdk`)
 - Wagmi + Viem for wallet connectivity
 - ethers.js for contract interactions
@@ -200,7 +200,8 @@ npm run test:e2e
 
 ### Frontend
 
-- **Next.js 14** - React framework with App Router
+- **Next.js 15** - React framework with App Router
+- **React 19** - Latest React with enhanced features
 - **TypeScript** - Type safety
 - **Wagmi** - React hooks for Ethereum
 - **Viem** - TypeScript Ethereum library

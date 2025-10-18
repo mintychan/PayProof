@@ -1,16 +1,36 @@
 import { expect, test } from "@playwright/test";
 
 test.describe("Verifier flow", () => {
-  // TODO: Enable when wallet connection mocking is set up for tests
-  test.skip("requires wallet connection", async ({ page }) => {
+  test("loads verify page successfully", async ({ page }) => {
+    await page.goto("/verify");
+
+    // Page should load without errors
+    await expect(page).toHaveURL("/verify");
+  });
+
+  test("shows wallet connect prompt when not connected", async ({ page }) => {
     await page.goto("/verify");
 
     // Should show wallet connect prompt when not connected
-    await expect(page.getByText("Connect Your Wallet")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Connect Your Wallet" })).toBeVisible();
+    await expect(page.getByText(/access confidential payroll streams/i)).toBeVisible();
+  });
+
+  test("displays header navigation", async ({ page }) => {
+    await page.goto("/verify");
+
+    // Header should be visible
+    await expect(page.getByText("PayProof")).toBeVisible();
+
+    // Navigation items should be visible (use .first() to avoid strict mode violations)
+    await expect(page.getByRole("link", { name: /Home/i }).first()).toBeVisible();
+    await expect(page.getByRole("link", { name: /Payments/i }).first()).toBeVisible();
+    await expect(page.getByRole("link", { name: /Vesting/i }).first()).toBeVisible();
+    await expect(page.getByRole("link", { name: /Airdrops/i }).first()).toBeVisible();
   });
 
   // TODO: Enable when wallet connection and fhEVM mocking is set up for tests
-  test.skip("renders proof-of-income attestation form", async ({ page }) => {
+  test.skip("renders proof-of-income attestation form when wallet connected", async ({ page }) => {
     // This test requires:
     // 1. Mocked wallet connection with wagmi
     // 2. Mocked fhEVM provider initialized
@@ -79,7 +99,7 @@ test.describe("Verifier flow", () => {
   });
 
   // TODO: Enable when wallet connection mocking is set up for tests
-  test.skip("validates form inputs", async ({ page }) => {
+  test.skip("validates form inputs when wallet connected", async ({ page }) => {
     // This test requires mocked wallet connection
 
     await page.goto("/verify");

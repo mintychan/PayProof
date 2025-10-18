@@ -1,16 +1,36 @@
 import { expect, test } from "@playwright/test";
 
 test.describe("Employee flow", () => {
-  // TODO: Enable when wallet connection mocking is set up for tests
-  test.skip("requires wallet connection", async ({ page }) => {
+  test("loads employee page successfully", async ({ page }) => {
+    await page.goto("/employee");
+
+    // Page should load without errors
+    await expect(page).toHaveURL("/employee");
+  });
+
+  test("shows wallet connect prompt when not connected", async ({ page }) => {
     await page.goto("/employee");
 
     // Should show wallet connect prompt when not connected
-    await expect(page.getByText("Connect Your Wallet")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Connect Your Wallet" })).toBeVisible();
+    await expect(page.getByText(/access confidential payroll streams/i)).toBeVisible();
+  });
+
+  test("displays header navigation", async ({ page }) => {
+    await page.goto("/employee");
+
+    // Header should be visible
+    await expect(page.getByText("PayProof")).toBeVisible();
+
+    // Navigation items should be visible (use .first() to avoid strict mode violations)
+    await expect(page.getByRole("link", { name: /Home/i }).first()).toBeVisible();
+    await expect(page.getByRole("link", { name: /Payments/i }).first()).toBeVisible();
+    await expect(page.getByRole("link", { name: /Vesting/i }).first()).toBeVisible();
+    await expect(page.getByRole("link", { name: /Airdrops/i }).first()).toBeVisible();
   });
 
   // TODO: Enable when wallet connection and blockchain mocking is set up for tests
-  test.skip("displays encrypted streams list", async ({ page }) => {
+  test.skip("displays encrypted streams list when wallet connected", async ({ page }) => {
     // This test requires:
     // 1. Mocked wallet connection with wagmi
     // 2. Mocked blockchain data for streams
@@ -50,7 +70,7 @@ test.describe("Employee flow", () => {
   });
 
   // TODO: Enable when wallet connection mocking is set up for tests
-  test.skip("shows proof generation link", async ({ page }) => {
+  test.skip("shows proof generation link when wallet connected", async ({ page }) => {
     // This test requires mocked wallet connection
 
     await page.goto("/employee");
