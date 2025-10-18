@@ -18,6 +18,7 @@ PayProof solves a critical privacy problem in blockchain-based payroll: how to p
 ### Smart Contracts (Solidity + fhEVM)
 
 **EncryptedPayroll.sol** - Core payroll streaming contract
+
 - Creates encrypted salary streams with `euint64` rate per second
 - Tracks encrypted balances using `euint128`
 - Supports pause/resume functionality
@@ -26,6 +27,7 @@ PayProof solves a critical privacy problem in blockchain-based payroll: how to p
 - Only employer and employee can decrypt amounts
 
 **IncomeOracle.sol** - Privacy-preserving income attestations
+
 - Accepts encrypted threshold from verifiers
 - Computes encrypted income over lookback window
 - Returns encrypted boolean (meets threshold?) and tier (A/B/C/None)
@@ -41,6 +43,7 @@ PayProof solves a critical privacy problem in blockchain-based payroll: how to p
 - **`/verify`** - Submit encrypted thresholds, receive tiered attestations
 
 **Tech Stack:**
+
 - Next.js 14 with App Router
 - Zama fhEVM Relayer SDK (`@zama-fhe/relayer-sdk`)
 - Wagmi + Viem for wallet connectivity
@@ -157,6 +160,7 @@ npm run test:e2e
 ### Contract Tests (63 tests, 100% passing)
 
 **EncryptedPayroll.sol** (34 tests)
+
 - Stream creation and lifecycle
 - Balance accrual over time
 - Top-up functionality
@@ -166,6 +170,7 @@ npm run test:e2e
 - Edge cases (small/large rates, multiple streams)
 
 **IncomeOracle.sol** (29 tests)
+
 - Basic attestation flow
 - Tier calculations (A/B/C/None)
 - Lookback window variations (7/30/60/90 days)
@@ -186,6 +191,7 @@ npm run test:e2e
 ## 🛠️ Technology Stack
 
 ### Blockchain
+
 - **Solidity 0.8.24** - Smart contract language
 - **fhEVM** - Fully homomorphic encryption for Ethereum
 - **Hardhat** - Development environment
@@ -193,6 +199,7 @@ npm run test:e2e
 - **Sepolia Testnet** - Deployment network
 
 ### Frontend
+
 - **Next.js 14** - React framework with App Router
 - **TypeScript** - Type safety
 - **Wagmi** - React hooks for Ethereum
@@ -202,6 +209,7 @@ npm run test:e2e
 - **TailwindCSS** - Styling
 
 ### Testing
+
 - **Hardhat Test** - Solidity unit tests
 - **Playwright** - End-to-end testing
 - **Chai** - Assertion library
@@ -209,97 +217,107 @@ npm run test:e2e
 ## 🗺️ Roadmap
 
 ### ✅ Phase 1: Core Functionality (Completed)
-- [x] Encrypted payroll stream creation
-- [x] Real-time balance accrual
-- [x] Client-side encryption/decryption
-- [x] Pause and resume streams
-- [x] Privacy-preserving attestations
-- [x] Tiered income verification
-- [x] Comprehensive test coverage (63+ tests)
-- [x] Sepolia deployment
 
-### 🚧 Phase 2: Enhanced Features (Q2 2025)
+- [X] Encrypted payroll stream creation
+- [X] Real-time balance accrual
+- [X] Client-side encryption/decryption
+- [X] Pause and resume streams
+- [X] Privacy-preserving attestations
+- [X] Tiered income verification
+- [X] Comprehensive test coverage (63+ tests)
+- [X] Sepolia deployment
+
+### 🚧 Phase 2: Enhanced Features 
+
 - [ ] **Employee withdrawal functionality**
+
   - Allow employees to withdraw accrued encrypted balance
   - Track withdrawn amounts separately from accrued
   - Emit `Withdrawal` event with encrypted amount
   - Update frontend to show available vs withdrawn balance
-
 - [ ] **Stream top-up UI**
+
   - Employer dashboard for topping up existing streams
   - Show current stream balance before top-up
   - Visual confirmation of top-up success
   - Historical top-up tracking
-
 - [ ] **Batch operations**
+
   - Create multiple streams in one transaction
   - Bulk pause/resume streams
   - Batch top-ups across multiple employees
-
 - [ ] **Stream templates**
+
   - Save commonly used stream configurations
   - Quick-create streams from templates
   - Department-based default rates
 
-### 🔮 Phase 3: Advanced Privacy Features (Q3 2025)
+### 🔮 Phase 3: Advanced Privacy Features 
+
 - [ ] **Multi-stream aggregation**
+
   - Prove combined income from multiple employers
   - Encrypted sum of all active streams
   - Cross-employer attestations
-
 - [ ] **Time-based proofs**
+
   - Prove income stability over time periods
   - Historical attestation archives
   - Trend analysis without revealing amounts
-
 - [ ] **Conditional payouts**
+
   - Milestone-based encrypted releases
   - Performance-linked encrypted bonuses
   - Scheduled rate adjustments
-
 - [ ] **Privacy-preserving analytics**
+
   - Encrypted aggregate statistics
   - Department-wide metrics without individual exposure
   - Compliance reporting with FHE
 
-### 🌐 Phase 4: Ecosystem Integration (Q4 2025)
+### 🌐 Phase 4: Ecosystem Integration 
+
 - [ ] **DeFi integrations**
+
   - Use income attestations for undercollateralized loans
   - Yield farming with income-based tiers
   - Insurance products based on verified income
-
 - [ ] **Multi-chain support**
+
   - Deploy to Ethereum mainnet with fhEVM
   - Cross-chain attestation verification
   - Bridge encrypted streams across chains
-
 - [ ] **Verifier marketplace**
+
   - Decentralized verifier registry
   - Reputation system for attestation quality
   - Automated verification for common use cases (mortgages, rentals)
-
 - [ ] **Mobile app**
+
   - React Native mobile wallet
   - Push notifications for stream events
   - Biometric decryption authorization
 
 ### 🔧 Phase 5: Developer Experience (Ongoing)
+
 - [ ] **SDK and tooling**
+
   - JavaScript/TypeScript SDK for integration
   - CLI tools for stream management
   - Webhook notifications for events
-
 - [ ] **Documentation**
+
   - Interactive tutorials
   - Integration guides
   - Video walkthroughs
-
 - [ ] **Testing improvements**
+
   - E2E tests with wallet mocking
   - fhEVM integration test environment
   - Performance benchmarking suite
 
 ### 💡 Future Research
+
 - Zero-knowledge proof integration for additional privacy layers
 - Homomorphic encryption optimizations for gas reduction
 - Privacy-preserving payroll tax calculations
@@ -311,7 +329,7 @@ MIT License - See LICENSE file for details
 
 ## 🙏 Acknowledgments
 
-Built with [Zama's fhEVM](https://www.zama.ai/fhevm) - Fully Homomorphic Encryption for Ethereum
+Built with [Zama&#39;s fhEVM](https://www.zama.ai/fhevm) - Fully Homomorphic Encryption for Ethereum
 
 Submitted for the Zama Builder Track
 
