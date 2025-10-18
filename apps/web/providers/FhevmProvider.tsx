@@ -22,6 +22,7 @@ type FhevmContextValue = {
   initializing: boolean;
   error?: string;
   encryptNumber: (params: EncryptParams) => Promise<EncryptionResult>;
+  instance: FhevmInstance | null;
 };
 
 const FhevmContext = createContext<FhevmContextValue | undefined>(undefined);
@@ -162,6 +163,7 @@ export function FhevmProvider({ children }: { children: React.ReactNode }) {
       initializing,
       error,
       encryptNumber,
+      instance,
     }),
     [instance, initializing, error, encryptNumber],
   );

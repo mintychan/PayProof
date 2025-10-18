@@ -8,13 +8,14 @@ type SectionCardProps = {
   children: ReactNode;
   footer?: ReactNode;
   className?: string;
-  accent?: "sky" | "violet" | "slate";
+  accent?: "sky" | "violet" | "slate" | "emerald";
 };
 
 const accentMap: Record<NonNullable<SectionCardProps["accent"]>, string> = {
   slate: "border-slate-800/80 shadow-[0_24px_50px_-25px_rgba(15,23,42,0.9)]",
   sky: "border-sky-500/20 shadow-[0_24px_50px_-25px_rgba(14,165,233,0.45)]",
   violet: "border-violet-500/20 shadow-[0_24px_60px_-30px_rgba(139,92,246,0.6)]",
+  emerald: "border-emerald-500/20 shadow-[0_24px_50px_-25px_rgba(16,185,129,0.45)]",
 };
 
 export function SectionCard({ title, description, children, footer, className, accent = "slate" }: SectionCardProps) {

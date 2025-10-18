@@ -12,11 +12,15 @@ dotenv.config();
 
 const DEFAULT_MNEMONIC = "test test test test test test test test test test test junk";
 
-const accounts = process.env.DEPLOYER_KEY
+const externalNetworkAccounts = process.env.DEPLOYER_KEY
   ? [process.env.DEPLOYER_KEY]
   : {
       mnemonic: process.env.MNEMONIC || DEFAULT_MNEMONIC
     };
+
+const hardhatNetworkAccounts = {
+  mnemonic: process.env.MNEMONIC || DEFAULT_MNEMONIC
+};
 
 const config: HardhatUserConfig = {
   solidity: {
@@ -38,16 +42,16 @@ const config: HardhatUserConfig = {
   networks: {
     hardhat: {
       chainId: 31337,
-      accounts
+      accounts: hardhatNetworkAccounts
     },
     protocol: {
       url: process.env.PROTOCOL_RPC_URL || "https://protocol-rpc-placeholder",
-      accounts
+      accounts: externalNetworkAccounts
     },
     sepolia: {
       url: process.env.SEPOLIA_RPC_URL || "https://sepolia-rpc-placeholder",
       chainId: 11155111,
-      accounts
+      accounts: externalNetworkAccounts
     }
   },
   typechain: {

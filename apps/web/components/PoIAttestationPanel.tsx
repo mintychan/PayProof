@@ -1,8 +1,11 @@
 "use client";
 
 import { FormEvent, useMemo, useState } from "react";
+import { useAccount, useWalletClient } from "wagmi";
 import CipherBadge from "./CipherBadge";
 import { useFhevm } from "../providers/FhevmProvider";
+import { incomeOracleContract } from "../lib/contracts/incomeOracleContract";
+import { parseEther, ethers } from "ethers";
 
 const TIERS = [
   { label: "Tier A", description: "≥ 2× threshold" },
@@ -11,49 +14,181 @@ const TIERS = [
 ];
 
 export default function PoIAttestationPanel() {
-  const { encryptNumber, ready: fheReady, initializing, error: fheError } = useFhevm();
+  const { address: verifierAddress } = useAccount();
+  const { encryptNumber, ready: fheReady, initializing, error: fheError, instance } = useFhevm();
+  const { data: walletClient } = useWalletClient();
   const [threshold, setThreshold] = useState<string>("");
   const [lookbackDays, setLookbackDays] = useState<number>(30);
   const [ciphertext, setCiphertext] = useState<{ handle: string; proof: string; summary: string } | null>(null);
-  const [result, setResult] = useState<{ meets: boolean; tier: string; attestationHash: string } | null>(null);
-  const [encrypting, setEncrypting] = useState(false);
+  const [result, setResult] = useState<{ attestationId: string; txHash: string; meetsHandle: string; tierHandle: string } | null>(null);
+  const [loadingState, setLoadingState] = useState<"idle" | "encrypting" | "verifying" | "checking" | "decrypting">("idle");
   const [formError, setFormError] = useState<string | null>(null);
+  const [employer, setEmployer] = useState<string>("");
+  const [decryptedResult, setDecryptedResult] = useState<{ meets: boolean; tier: number } | null>(null);
 
-  const ready = useMemo(() => fheReady && Number(threshold) > 0 && lookbackDays > 0, [fheReady, threshold, lookbackDays]);
+  const ready = useMemo(() => fheReady && verifierAddress && Number(threshold) > 0 && lookbackDays > 0, [fheReady, verifierAddress, threshold, lookbackDays]);
 
   const oracleAddress = process.env.NEXT_PUBLIC_PAYPROOF_ORACLE_CONTRACT?.trim() || "0xbBbBBBBbbBBBbbbBbbBbbbbBBbBbbbbBbBbbBBbB";
-  const verifierAddress = process.env.NEXT_PUBLIC_PAYPROOF_VERIFIER?.trim() || "0xcCCcccCcCCcccCccccCCCcCcCcCCCcCcccccccCC";
+
+  // Create ethers signer from wagmi wallet client
+  const ethersSigner = useMemo(() => {
+    if (!walletClient || !verifierAddress) return undefined;
+
+    const eip1193Provider = {
+      request: async (args: any) => {
+        return await walletClient.request(args);
+      },
+    } as ethers.Eip1193Provider;
+
+    const ethersProvider = new ethers.BrowserProvider(eip1193Provider);
+    return new ethers.JsonRpcSigner(ethersProvider, verifierAddress);
+  }, [walletClient, verifierAddress]);
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setFormError(null);
-    if (!ready) {
-      setFormError("fhEVM is not ready yet. Please wait a second and retry.");
+
+    // Clear previous results immediately
+    setCiphertext(null);
+    setResult(null);
+    setDecryptedResult(null);
+
+    if (!ready || !verifierAddress) {
+      setFormError("Please connect your wallet first.");
       return;
     }
 
+    // Validate employer address
+    if (!employer || employer.length !== 42 || !employer.startsWith("0x")) {
+      setFormError("Please enter a valid employer address");
+      return;
+    }
+
+    // Start with checking phase immediately
+    setLoadingState("checking");
+
+    // Defer the async work to next tick to allow UI to update
+    await new Promise(resolve => setTimeout(resolve, 0));
+
     try {
-      setEncrypting(true);
+      // Check if stream exists
+      const streamExists = await incomeOracleContract.streamExists(employer, verifierAddress);
+      if (!streamExists) {
+        setFormError(`No active stream found between employer ${employer} and employee ${verifierAddress}`);
+        setLoadingState("idle");
+        return;
+      }
+
+      // Move to encrypting phase
+      setLoadingState("encrypting");
+      await new Promise(resolve => setTimeout(resolve, 0));
+
+      // Convert threshold from ETH to wei (threshold is monthly amount in ETH)
+      const thresholdWei = parseEther(threshold);
+      console.log(`Threshold: ${threshold} ETH = ${thresholdWei} wei`);
+
+      // Encrypt the threshold (in wei)
       const enc = await encryptNumber({
-        value: Number(threshold),
+        value: Number(thresholdWei),
         bitSize: 128,
         contractAddress: oracleAddress,
         userAddress: verifierAddress
       });
       setCiphertext(enc);
 
-      const meets = Number(threshold) <= 5_000;
-      const tier = meets ? (Number(threshold) <= 2_500 ? "A" : Number(threshold) <= 3_500 ? "B" : "C") : "-";
-      const attestationHash = crypto.randomUUID();
+      // Move to verifying phase
+      setLoadingState("verifying");
+      await new Promise(resolve => setTimeout(resolve, 0));
+
+      // Call the on-chain oracle to attest income
+      console.log("Calling oracle contract for attestation...");
+      const attestation = await incomeOracleContract.attestMonthlyIncome(
+        employer,
+        verifierAddress,
+        enc.handle,
+        enc.proof,
+        lookbackDays
+      );
+
+      console.log("Attestation result:", attestation);
+
       setResult({
-        meets,
-        tier,
-        attestationHash
+        attestationId: attestation.attestationId,
+        txHash: attestation.txHash,
+        meetsHandle: attestation.meetsHandle,
+        tierHandle: attestation.tierHandle,
       });
     } catch (err) {
-      setFormError((err as Error)?.message ?? "Failed to encrypt threshold");
+      console.error("Attestation error:", err);
+      setFormError((err as Error)?.message ?? "Failed to verify income on-chain");
     } finally {
-      setEncrypting(false);
+      setLoadingState("idle");
+    }
+  };
+
+  const handleDecryptResult = async () => {
+    if (!result || !verifierAddress || !instance || !ethersSigner) {
+      setFormError("Cannot decrypt: missing requirements");
+      return;
+    }
+
+    setLoadingState("decrypting");
+    setFormError(null);
+
+    try {
+      console.log("Decrypting attestation result...");
+
+      // Generate keypair for decryption
+      const { publicKey, privateKey } = (instance as any).generateKeypair();
+
+      // Create EIP-712 signature request
+      const startTimestamp = Math.floor(Date.now() / 1000);
+      const durationDays = 365;
+      const eip712 = (instance as any).createEIP712(
+        publicKey,
+        [oracleAddress],
+        startTimestamp,
+        durationDays
+      );
+
+      // Request user signature
+      const signature = await (ethersSigner as any).signTypedData(
+        eip712.domain,
+        { UserDecryptRequestVerification: eip712.types.UserDecryptRequestVerification },
+        eip712.message
+      );
+
+      console.log("Signature obtained, decrypting...");
+
+      // Decrypt both handles
+      const results = await (instance as any).userDecrypt(
+        [
+          { handle: result.meetsHandle, contractAddress: oracleAddress },
+          { handle: result.tierHandle, contractAddress: oracleAddress }
+        ],
+        privateKey,
+        publicKey,
+        signature,
+        [oracleAddress],
+        verifierAddress,
+        startTimestamp,
+        durationDays
+      );
+
+      const meetsValue = Number(results[result.meetsHandle]);
+      const tierValue = Number(results[result.tierHandle]);
+
+      console.log("Decrypted values:", { meets: meetsValue, tier: tierValue });
+
+      setDecryptedResult({
+        meets: meetsValue === 1,
+        tier: tierValue
+      });
+    } catch (error: any) {
+      console.error("Decryption error:", error);
+      setFormError(error?.message || "Failed to decrypt attestation result");
+    } finally {
+      setLoadingState("idle");
     }
   };
 
@@ -67,11 +202,24 @@ export default function PoIAttestationPanel() {
         <CipherBadge label={ready ? "FHE ready" : initializing ? "Initialising fhEVM" : "Awaiting inputs"} />
       </div>
       <label className="grid gap-1 text-sm">
-        <span className="text-slate-300">Threshold (encrypted units)</span>
+        <span className="text-slate-300">Employer Address</span>
+        <input
+          className="rounded border border-slate-700 bg-slate-950 px-3 py-2 text-slate-100 font-mono text-sm"
+          type="text"
+          placeholder="0x..."
+          required
+          value={employer}
+          onChange={(event) => setEmployer(event.target.value)}
+          name="employer"
+        />
+      </label>
+      <label className="grid gap-1 text-sm">
+        <span className="text-slate-300">Threshold (ETH)</span>
         <input
           className="rounded border border-slate-700 bg-slate-950 px-3 py-2 text-slate-100"
           type="number"
-          min="1"
+          min="0"
+          step="any"
           required
           value={threshold}
           onChange={(event) => setThreshold(event.target.value)}
@@ -102,10 +250,19 @@ export default function PoIAttestationPanel() {
       </div>
       <button
         type="submit"
-        className="w-fit rounded bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground"
-        disabled={!ready || encrypting}
+        className="w-fit rounded bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+        disabled={!ready || loadingState !== "idle"}
       >
-        {encrypting ? "Encrypting…" : "Encrypt & Request Proof"}
+        {loadingState !== "idle" && (
+          <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary-foreground border-t-transparent"></div>
+        )}
+        {loadingState === "checking"
+          ? "Checking stream…"
+          : loadingState === "encrypting"
+          ? "Encrypting…"
+          : loadingState === "verifying"
+          ? "Verifying on-chain…"
+          : "Encrypt & Request Proof"}
       </button>
       {formError ? (
         <p className="rounded border border-red-500/40 bg-red-500/10 p-3 text-xs text-red-200">{formError}</p>
@@ -122,12 +279,105 @@ export default function PoIAttestationPanel() {
         </div>
       ) : null}
       {result ? (
-        <div className="grid gap-2 rounded border border-slate-800 bg-slate-900/60 p-3 text-sm text-slate-200" data-testid="attestation-result">
-          <p>
-            Outcome: <strong>{result.meets ? "Threshold met" : "Threshold not met"}</strong>
-          </p>
-          <p>Tier: {result.tier}</p>
-          <p className="text-xs text-slate-400">Attestation ID: {result.attestationHash}</p>
+        <div className="grid gap-3 rounded border border-emerald-500/30 bg-emerald-500/5 p-4 text-sm text-slate-200" data-testid="attestation-result">
+          <div>
+            <p className="text-xs text-emerald-400 mb-1">✓ On-chain Attestation Successful</p>
+            <p className="text-sm text-slate-300">
+              Your income has been verified on the blockchain using fully homomorphic encryption.
+            </p>
+          </div>
+
+          <div className="grid gap-2 rounded border border-slate-800/50 bg-slate-950/50 p-3 text-xs">
+            <div>
+              <p className="text-slate-500">Transaction Hash</p>
+              <a
+                href={`https://sepolia.etherscan.io/tx/${result.txHash}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="font-mono text-xs text-sky-400 hover:text-sky-300 break-all"
+              >
+                {result.txHash}
+              </a>
+            </div>
+            <div>
+              <p className="text-slate-500">Attestation ID</p>
+              <p className="font-mono text-xs text-slate-300 break-all">
+                {result.attestationId}
+              </p>
+            </div>
+            <div>
+              <p className="text-slate-500">Encrypted Handles</p>
+              <p className="font-mono text-xs text-slate-400">
+                Meets: {result.meetsHandle.slice(0, 20)}...
+              </p>
+              <p className="font-mono text-xs text-slate-400">
+                Tier: {result.tierHandle.slice(0, 20)}...
+              </p>
+            </div>
+          </div>
+
+          <div className="rounded border border-sky-500/20 bg-sky-500/5 p-3 text-xs text-sky-200">
+            <p className="font-semibold mb-1">🔒 Privacy Preserved</p>
+            <p className="text-xs text-sky-300/80">
+              The oracle verified your income without revealing the actual amount. Only the encrypted result is stored on-chain.
+            </p>
+          </div>
+
+          {/* Decrypt Result Button */}
+          {!decryptedResult && (
+            <button
+              type="button"
+              onClick={handleDecryptResult}
+              disabled={loadingState === "decrypting"}
+              className="w-full rounded-2xl bg-gradient-to-r from-violet-500 to-purple-500 px-4 py-3 text-sm font-semibold text-white transition hover:brightness-110 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+            >
+              {loadingState === "decrypting" && (
+                <div className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent"></div>
+              )}
+              {loadingState === "decrypting" ? "Decrypting..." : "🔓 Decrypt Result"}
+            </button>
+          )}
+
+          {/* Decrypted Result */}
+          {decryptedResult && (
+            <div className={`rounded-2xl border p-4 ${
+              decryptedResult.meets
+                ? "border-emerald-500/30 bg-emerald-500/10"
+                : "border-red-500/30 bg-red-500/10"
+            }`}>
+              <div className="flex items-start gap-3">
+                <span className="text-2xl">
+                  {decryptedResult.meets ? "✅" : "❌"}
+                </span>
+                <div className="flex-1">
+                  <p className={`text-lg font-semibold ${
+                    decryptedResult.meets ? "text-emerald-200" : "text-red-200"
+                  }`}>
+                    {decryptedResult.meets ? "Threshold Met!" : "Threshold Not Met"}
+                  </p>
+                  <p className={`text-sm mt-1 ${
+                    decryptedResult.meets ? "text-emerald-300/80" : "text-red-300/80"
+                  }`}>
+                    {decryptedResult.meets
+                      ? `Your income meets or exceeds the threshold of ${threshold} ETH over ${lookbackDays} days`
+                      : `Your income is below the threshold of ${threshold} ETH over ${lookbackDays} days`
+                    }
+                  </p>
+                  {decryptedResult.meets && decryptedResult.tier > 0 && (
+                    <div className="mt-3 rounded-xl border border-white/10 bg-white/5 px-3 py-2">
+                      <p className="text-xs text-slate-400">Income Tier</p>
+                      <p className="text-lg font-bold text-white mt-1">
+                        {decryptedResult.tier === 3 ? "Tier A (≥ 2× threshold)" :
+                         decryptedResult.tier === 2 ? "Tier B (≥ 1.1× threshold)" :
+                         decryptedResult.tier === 1 ? "Tier C (Meets threshold)" :
+                         "No tier"}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       ) : null}
     </form>

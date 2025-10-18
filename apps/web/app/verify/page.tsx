@@ -1,22 +1,25 @@
 "use client";
 
+import { useAccount } from "wagmi";
 import PoIAttestationPanel from "../../components/PoIAttestationPanel";
 import NetworkStatus from "../../components/NetworkStatus";
 import { PageHeader } from "../../components/ui/PageHeader";
 import { SectionCard } from "../../components/ui/SectionCard";
 import { MetricPill } from "../../components/ui/MetricPill";
+import { WalletConnectPrompt } from "../../components/WalletConnect";
 
 export default function VerifyPage() {
+  const { isConnected } = useAccount();
+
+  if (!isConnected) {
+    return <WalletConnectPrompt />;
+  }
+
   return (
     <section className="space-y-8">
       <PageHeader
         title="Verifier Console"
         subtitle="Provide an encrypted income threshold and receive a privacy-preserving attestation with deterministic tiers."
-        actions={
-          <button className="rounded-full bg-gradient-to-r from-amber-400 to-orange-500 px-4 py-2 text-xs font-semibold text-slate-950 shadow hover:brightness-105">
-            Download verifier snippet
-          </button>
-        }
       />
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
