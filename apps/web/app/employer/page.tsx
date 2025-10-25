@@ -4,6 +4,7 @@ import { useAccount } from "wagmi";
 import PayrollStreamForm from "../../components/PayrollStreamForm";
 import { WalletConnectPrompt } from "../../components/WalletConnect";
 import { useEncryptedStreams } from "../../hooks/useEncryptedStreams";
+import { StreamStatus } from "../../lib/contracts/encryptedPayrollContract";
 
 export default function EmployerPage() {
   const { address, isConnected } = useAccount();
@@ -192,12 +193,23 @@ export default function EmployerPage() {
           </div>
         ) : streams.length > 0 ? (
           <div className="grid gap-4">
-            {streams.map((stream) => (
-              <a
-                key={stream.streamId}
-                href={`/stream/${stream.streamId}`}
-                className="group rounded-3xl border border-white/5 bg-slate-900/40 p-6 backdrop-blur transition hover:border-blue-400/30 hover:bg-slate-900/60"
-              >
+            {streams.map((stream) => {
+              const status = stream.status as StreamStatus;
+              const statusBadge =
+                status === StreamStatus.Active
+                  ? { label: "Active", className: "bg-emerald-500/20 text-emerald-400" }
+                  : status === StreamStatus.Paused
+                  ? { label: "Paused", className: "bg-amber-500/20 text-amber-400" }
+                  : status === StreamStatus.Settled
+                  ? { label: "Settled", className: "bg-sky-500/20 text-sky-300" }
+                  : { label: "Cancelled", className: "bg-slate-500/20 text-slate-400" };
+
+              return (
+                <a
+                  key={stream.streamId}
+                  href={`/stream/${stream.streamId}`}
+                  className="group rounded-3xl border border-white/5 bg-slate-900/40 p-6 backdrop-blur transition hover:border-blue-400/30 hover:bg-slate-900/60"
+                >
                 <div className="mb-4 flex items-start justify-between">
                   <div className="flex items-center gap-3">
                     <div className="flex h-12 w-12 items-center justify-center rounded-full border border-white/10 bg-gradient-to-br from-blue-500/20 to-purple-500/20">
@@ -215,15 +227,9 @@ export default function EmployerPage() {
                     </div>
                   </div>
                   <span
-                    className={`rounded-full px-3 py-1 text-xs font-medium ${
-                      stream.status === 1
-                        ? "bg-emerald-500/20 text-emerald-400"
-                        : stream.status === 2
-                        ? "bg-amber-500/20 text-amber-400"
-                        : "bg-slate-500/20 text-slate-400"
-                    }`}
+                    className={`rounded-full px-3 py-1 text-xs font-medium ${statusBadge.className}`}
                   >
-                    {stream.status === 1 ? "Active" : stream.status === 2 ? "Paused" : "Cancelled"}
+                    {statusBadge.label}
                   </span>
                 </div>
                 <div className="grid gap-3 sm:grid-cols-2">
@@ -251,8 +257,9 @@ export default function EmployerPage() {
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                   </svg>
                 </div>
-              </a>
-            ))}
+                </a>
+              );
+            })}
           </div>
         ) : (
           <div className="flex items-center justify-center rounded-3xl border border-white/5 bg-slate-900/40 p-12 backdrop-blur">

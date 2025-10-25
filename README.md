@@ -17,22 +17,19 @@ PayProof solves a critical privacy problem in blockchain-based payroll: how to p
 
 ### Smart Contracts (Solidity + fhEVM)
 
-**EncryptedPayroll.sol** - Core payroll streaming contract
+**EncryptedPayroll.sol** – Confidential lockup & streaming
 
-- Creates encrypted salary streams with `euint64` rate per second
-- Tracks encrypted balances using `euint128`
-- Supports pause/resume functionality
-- Stream lifecycle management (Active, Paused, Cancelled)
-- Employer-controlled top-up capability
-- Only employer and employee can decrypt amounts
+- **Encrypted state machine:** Streams are represented as structured records containing the encrypted rate, balances, unlock schedules, cliff/transferability flags, hook address, and numeric ID. Lifecycle transitions (Active ↔ Paused, Cancelled → Settled) are enforced at the contract level so downstream apps can rely on consistent status semantics.
+- **Homomorphic balance math:** Per-second rates (`euint64`) accumulate into encrypted balances (`euint128`). Top-ups, withdrawals, and accruals all run inside fhEVM, keeping amounts shielded while still allowing deterministic balance queries.
+- **Hook-driven composability:** Streams can opt into encrypted callbacks (on withdraw/cancel) for allowlisted contracts such as the IncomeOracle. Hooks receive ciphertext handles, enabling integrations (staking, vaults, credit scoring) without leaking raw values.
+- **Access controls & settlement:** Employers control cancelability, transferability, hooks, and top-ups; employees (or authorized hooks) can withdraw. Withdrawals zero out balances without disrupting active streams, while cancelled streams settle once their final withdrawal completes so NFTs can be recycled safely.
 
-**IncomeOracle.sol** - Privacy-preserving income attestations
+**IncomeOracle.sol** – Threshold attestations with encrypted deltas
 
-- Accepts encrypted threshold from verifiers
-- Computes encrypted income over lookback window
-- Returns encrypted boolean (meets threshold?) and tier (A/B/C/None)
-- Tiering: A (≥2× threshold), B (≥1.1× threshold), C (meets threshold)
-- Verifiers decrypt attestation results without learning exact income
+- **Hook ingestion:** Implements `IConfidentialLockupRecipient` so the payroll contract pushes encrypted withdraw/cancel events. Paid and outstanding amounts are accumulated homomorphically, keeping a running encrypted ledger per stream.
+- **Encrypted comparisons:** Verifiers encrypt thresholds and lookback windows. The oracle combines projected income from `EncryptedPayroll` with accumulated paid totals, evaluates the comparison homomorphically, and emits encrypted meets/tier handles.
+- **Tier policy:** Tier C (meets threshold), Tier B (≥1.1×), Tier A (≥2×). Since the tier logic executes on ciphertexts, neither the contract nor verifiers learn the underlying salary.
+- **Queryable handles:** Utility getters (`encryptedPaidAmount`, `encryptedOutstandingOnCancel`) let wallets/UI display encrypted balances or request temporary decryption via fhEVM SDKs, keeping the UX responsive while preserving privacy.
 
 ### Frontend (Next.js 15 + TypeScript)
 
@@ -52,10 +49,13 @@ PayProof solves a critical privacy problem in blockchain-based payroll: how to p
 
 ### Deployed Contracts (Sepolia)
 
-- **EncryptedPayroll**: `0x409f3F0fC65Be37ED2592F52a4DC88c8Af240D2e`
-- **IncomeOracle**: `0xE8C06A8a5fACC90C88D81FF0377b8510847C1717`
+- **EncryptedPayroll**: `0xA596ed08E204041F90f588f5403F1DFE46C3D19a`
+- **IncomeOracle**: `0xCedcAd98B21ae4929f2f220ba57Acf7C6F01fAC8`
 
-[View on Sepolia Etherscan](https://sepolia.etherscan.io/address/0x409f3F0fC65Be37ED2592F52a4DC88c8Af240D2e)
+Both have been verified on Etherscan:
+
+- https://sepolia.etherscan.io/address/0xA596ed08E204041F90f588f5403F1DFE46C3D19a#code
+- https://sepolia.etherscan.io/address/0xCedcAd98B21ae4929f2f220ba57Acf7C6F01fAC8#code
 
 ## 🚀 Getting Started
 
@@ -99,14 +99,25 @@ pnpm dev
 ### Testing
 
 ```bash
-# Run contract tests (63 comprehensive tests)
-cd contracts
-npm test
+# Run contract unit tests
+pnpm contracts:compile
+pnpm test:contracts
 
 # Run end-to-end tests (Playwright)
-cd apps/web
-npm run test:e2e
+pnpm test:e2e
 ```
+
+### Useful scripts
+
+From the repo root we expose a few convenience scripts via `package.json`:
+
+- `pnpm contracts:compile` – compile all Solidity sources in `contracts/`
+- `pnpm contracts:clean` – clear Hardhat artifacts/cache
+- `pnpm contracts:deploy:sepolia` – deploy `EncryptedPayroll` and `IncomeOracle` to Sepolia using the configured deployer key
+- `pnpm contracts:verify:payroll` – verify the payroll contract (`PAYROLL_ADDRESS=0x… pnpm contracts:verify:payroll`)
+- `pnpm contracts:verify:oracle` – verify the oracle contract (`ORACLE_ADDRESS=0x… PAYROLL_ADDRESS=0x… pnpm contracts:verify:oracle`)
+
+Remember to configure `SEPOLIA_RPC_URL`, `DEPLOYER_KEY`, and `ETHERSCAN_API_KEY` in `contracts/.env` before running deploy/verify commands.
 
 ## 📖 User Flows
 
@@ -157,7 +168,7 @@ npm run test:e2e
 
 ## 🧪 Test Coverage
 
-### Contract Tests (63 tests, 100% passing)
+### Contract Tests
 
 **EncryptedPayroll.sol** (34 tests)
 
@@ -230,18 +241,16 @@ npm run test:e2e
 
 ### 🚧 Phase 2: Enhanced Features 
 
-- [ ] **Employee withdrawal functionality**
+- [x] **Employee withdrawal functionality**
 
-  - Allow employees to withdraw accrued encrypted balance
-  - Track withdrawn amounts separately from accrued
-  - Emit `Withdrawal` event with encrypted amount
-  - Update frontend to show available vs withdrawn balance
-- [ ] **Stream top-up UI**
+  - Encrypted withdrawal flow (continuous accrual + encrypted hooks)
+  - UI actions for withdraw & balance handle retrieval
+  - `StreamWithdrawn` event mirroring encrypted amount
+- [x] **Stream top-up UI**
 
-  - Employer dashboard for topping up existing streams
-  - Show current stream balance before top-up
-  - Visual confirmation of top-up success
-  - Historical top-up tracking
+  - Employer-side encrypted top-up tooling
+  - Frontend controls for fhEVM encryption + submission
+  - Stream detail page surfaces balance handles after top-up
 - [ ] **Batch operations**
 
   - Create multiple streams in one transaction

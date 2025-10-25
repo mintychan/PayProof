@@ -4,7 +4,7 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useAccount } from "wagmi";
 import CipherBadge from "./CipherBadge";
 import { useFhevm } from "../providers/FhevmProvider";
-import { encryptedPayrollContract } from "../lib/contracts/encryptedPayrollContract";
+import { encryptedPayrollContract, CreateStreamResult } from "../lib/contracts/encryptedPayrollContract";
 import { parseEther } from "ethers";
 
 const CADENCE_OPTIONS = [
@@ -20,7 +20,7 @@ export default function PayrollStreamForm() {
   const [rate, setRate] = useState<string>("");
   const [cadence, setCadence] = useState<number>(CADENCE_OPTIONS[0].seconds);
   const [encryptionPreview, setEncryptionPreview] = useState<{ handle: string; proof: string; summary: string } | null>(null);
-  const [result, setResult] = useState<{ streamId: string; message: string } | null>(null);
+  const [result, setResult] = useState<(CreateStreamResult & { message: string }) | null>(null);
   const [loadingState, setLoadingState] = useState<"idle" | "encrypting" | "creating">("idle");
   const [formError, setFormError] = useState<string | null>(null);
 
@@ -62,7 +62,7 @@ export default function PayrollStreamForm() {
 
       // Encrypt the rate per second
       const encrypted = await encryptNumber({
-        value: Number(ratePerSecond),
+        value: ratePerSecond,
         bitSize: 64,
         contractAddress: payrollContract,
         userAddress: employerAddress
@@ -76,7 +76,7 @@ export default function PayrollStreamForm() {
 
       // Create the encrypted stream on-chain
       console.log("Creating encrypted stream...");
-      const streamId = await encryptedPayrollContract.createStream(
+      const creation = await encryptedPayrollContract.createStream(
         employerAddress,
         {
           employee: employeeAddress,
@@ -88,7 +88,7 @@ export default function PayrollStreamForm() {
       );
 
       setResult({
-        streamId,
+        ...creation,
         message: `Stream created successfully! Streaming ${rate} ETH/month to ${employeeAddress.slice(0, 6)}...${employeeAddress.slice(-4)}`,
       });
 
@@ -211,7 +211,7 @@ export default function PayrollStreamForm() {
           <p className="font-semibold text-emerald-100">✓ Stream Created!</p>
           <p className="mt-2 text-emerald-200">{result.message}</p>
           <p className="mt-3 text-xs text-emerald-300/80">
-            Stream ID: <code className="break-all">{result.streamId}</code>
+            Stream Key: <code className="break-all">{result.streamKey}</code>
           </p>
         </div>
       ) : null}

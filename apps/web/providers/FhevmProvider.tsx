@@ -11,7 +11,7 @@ type EncryptionResult = {
 };
 
 type EncryptParams = {
-  value: number;
+  value: number | bigint;
   bitSize: 64 | 128;
   contractAddress: string;
   userAddress: string;
@@ -121,6 +121,25 @@ export function FhevmProvider({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
+  const coerceToBigInt = useCallback((raw: number | bigint) => {
+    if (typeof raw === "bigint") {
+      if (raw < 0n) {
+        throw new Error("Encrypted values must be non-negative.");
+      }
+      return raw;
+    }
+
+    if (!Number.isFinite(raw)) {
+      throw new Error("Encrypted values must be finite numbers.");
+    }
+
+    if (raw < 0) {
+      throw new Error("Encrypted values must be non-negative.");
+    }
+
+    return BigInt(Math.floor(raw));
+  }, []);
+
   const encryptNumber = useCallback(
     async ({ value, bitSize, contractAddress, userAddress }: EncryptParams) => {
       if (instance) {
@@ -128,12 +147,16 @@ export function FhevmProvider({ children }: { children: React.ReactNode }) {
         const normalizedUser = getAddress(userAddress);
 
         const input = instance.createEncryptedInput(normalizedContract, normalizedUser);
-        const rounded = Math.max(0, Math.floor(value));
+        const plaintext = coerceToBigInt(value);
+        const maxValue = (1n << BigInt(bitSize)) - 1n;
+        if (plaintext > maxValue) {
+          throw new Error(`Value exceeds ${bitSize}-bit encryption capacity.`);
+        }
 
         if (bitSize === 128) {
-          input.add128(BigInt(rounded));
+          input.add128(plaintext);
         } else {
-          input.add64(BigInt(rounded));
+          input.add64(plaintext);
         }
 
         const { handles, inputProof } = await input.encrypt();
@@ -154,7 +177,7 @@ export function FhevmProvider({ children }: { children: React.ReactNode }) {
 
       throw new Error("fhEVM instance is not ready yet");
     },
-    [instance, fallbackEncrypt],
+    [instance, fallbackEncrypt, coerceToBigInt],
   );
 
   const value = useMemo<FhevmContextValue>(

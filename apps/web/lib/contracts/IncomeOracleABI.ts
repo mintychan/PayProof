@@ -16,6 +16,11 @@ export const INCOME_ORACLE_ABI = [
     "type": "error"
   },
   {
+    "inputs": [],
+    "name": "UnauthorizedHookCaller",
+    "type": "error"
+  },
+  {
     "anonymous": false,
     "inputs": [
       {
@@ -59,6 +64,56 @@ export const INCOME_ORACLE_ABI = [
     "type": "event"
   },
   {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "bytes32",
+        "name": "streamKey",
+        "type": "bytes32"
+      },
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "streamId",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "bytes32",
+        "name": "recipientAmountHandle",
+        "type": "bytes32"
+      }
+    ],
+    "name": "OutstandingRecorded",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "bytes32",
+        "name": "streamKey",
+        "type": "bytes32"
+      },
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "streamId",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "bytes32",
+        "name": "amountHandle",
+        "type": "bytes32"
+      }
+    ],
+    "name": "PaidAmountUpdated",
+    "type": "event"
+  },
+  {
     "inputs": [
       {
         "internalType": "address",
@@ -93,12 +148,12 @@ export const INCOME_ORACLE_ABI = [
           {
             "internalType": "euint8",
             "name": "meetsFlag",
-            "type": "uint256"
+            "type": "bytes32"
           },
           {
             "internalType": "euint8",
             "name": "tier",
-            "type": "uint256"
+            "type": "bytes32"
           },
           {
             "internalType": "bytes32",
@@ -115,6 +170,150 @@ export const INCOME_ORACLE_ABI = [
     "type": "function"
   },
   {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "streamKey",
+        "type": "bytes32"
+      }
+    ],
+    "name": "encryptedOutstandingOnCancel",
+    "outputs": [
+      {
+        "internalType": "euint128",
+        "name": "",
+        "type": "bytes32"
+      }
+    ],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "streamKey",
+        "type": "bytes32"
+      }
+    ],
+    "name": "encryptedPaidAmount",
+    "outputs": [
+      {
+        "internalType": "euint128",
+        "name": "",
+        "type": "bytes32"
+      }
+    ],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "streamKey",
+        "type": "bytes32"
+      }
+    ],
+    "name": "lastCancellationTimestamp",
+    "outputs": [
+      {
+        "internalType": "uint64",
+        "name": "timestamp",
+        "type": "uint64"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "streamKey",
+        "type": "bytes32"
+      }
+    ],
+    "name": "lastPaymentTimestamp",
+    "outputs": [
+      {
+        "internalType": "uint64",
+        "name": "timestamp",
+        "type": "uint64"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "streamId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "address",
+        "name": "caller",
+        "type": "address"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "recipientAmountHandle",
+        "type": "bytes32"
+      }
+    ],
+    "name": "onConfidentialLockupCancel",
+    "outputs": [
+      {
+        "internalType": "bytes4",
+        "name": "",
+        "type": "bytes4"
+      }
+    ],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "streamId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "address",
+        "name": "caller",
+        "type": "address"
+      },
+      {
+        "internalType": "address",
+        "name": "to",
+        "type": "address"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "amountHandle",
+        "type": "bytes32"
+      }
+    ],
+    "name": "onConfidentialLockupWithdraw",
+    "outputs": [
+      {
+        "internalType": "bytes4",
+        "name": "",
+        "type": "bytes4"
+      }
+    ],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
     "inputs": [],
     "name": "payroll",
     "outputs": [
@@ -125,6 +324,19 @@ export const INCOME_ORACLE_ABI = [
       }
     ],
     "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "protocolId",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "pure",
     "type": "function"
   }
 ] as const;

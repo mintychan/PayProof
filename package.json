@@ -8,7 +8,10 @@
     "lint": "pnpm --filter @payproof/web lint",
     "test:contracts": "pnpm --filter @payproof/contracts test",
     "test:e2e": "NEXT_PUBLIC_FHE_FALLBACK=1 pnpm --filter @payproof/web test:e2e",
-    "test": "pnpm test:contracts && pnpm test:e2e"
+    "test": "pnpm test:contracts && pnpm test:e2e",
+    "contracts:compile": "pnpm --filter @payproof/contracts exec -- hardhat compile",
+    "contracts:clean": "pnpm --filter @payproof/contracts exec -- hardhat clean",
+    "contracts:deploy:sepolia": "pnpm --filter @payproof/contracts exec -- hardhat run scripts/deployOracle.ts --network sepolia"
   },
   "workspaces": [
     "apps/*",

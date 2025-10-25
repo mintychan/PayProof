@@ -27,6 +27,8 @@ async function deployContracts() {
   const oracle = (await oracleFactory.deploy(payroll)) as IncomeOracle;
   const oracleAddress = await oracle.getAddress();
 
+  await payroll.allowHook(oracleAddress, true);
+
   return { payroll, payrollAddress, oracle, oracleAddress };
 }
 
@@ -64,8 +66,21 @@ describe("IncomeOracle (fhEVM) - Comprehensive Tests", function () {
         30 * DAY,
         0,
       );
+    const streamKey = await payroll.computeStreamId(employer.address, employee.address);
+    await payroll.connect(employer).setStreamHook(streamKey, oracleAddress);
+    return streamKey;
+  }
 
-    return payroll.computeStreamId(employer.address, employee.address);
+  async function decryptPaid(streamKey: string, account: HardhatEthersSigner = signers.employee) {
+    const handle = await oracle.encryptedPaidAmount.staticCall(streamKey);
+    await oracle.encryptedPaidAmount(streamKey);
+    return fhevm.userDecryptEuint(FhevmType.euint128, handle, oracleAddress, account);
+  }
+
+  async function decryptOutstanding(streamKey: string, account: HardhatEthersSigner = signers.employee) {
+    const handle = await oracle.encryptedOutstandingOnCancel.staticCall(streamKey);
+    await oracle.encryptedOutstandingOnCancel(streamKey);
+    return fhevm.userDecryptEuint(FhevmType.euint128, handle, oracleAddress, account);
   }
 
   async function attestIncome(thresholdValue: bigint, lookbackDays: number) {
@@ -471,6 +486,48 @@ describe("IncomeOracle (fhEVM) - Comprehensive Tests", function () {
 
       // The actual income (25,920,000) is NOT revealed in the event
       // Only the encrypted handles are emitted
+    });
+  });
+
+  describe("Hook Callbacks", function () {
+    it("records paid amount on withdrawal", async function () {
+      const streamKey = await createStream(5);
+
+      const topUp = await fhevm
+        .createEncryptedInput(payrollAddress, signers.employer.address)
+        .add128(500n)
+        .encrypt();
+
+      await payroll.connect(signers.employer).topUp(streamKey, topUp.handles[0], topUp.inputProof);
+
+      await expect(
+        payroll.connect(signers.employee).withdrawMax(streamKey, signers.employee.address),
+      ).to.emit(oracle, "PaidAmountUpdated");
+
+      const paid = await decryptPaid(streamKey);
+      expect(Number(paid)).to.be.closeTo(500, 16);
+      const lastPaid = await oracle.lastPaymentTimestamp(streamKey);
+      expect(lastPaid).to.be.gt(0n);
+    });
+
+    it("records outstanding amount on cancel", async function () {
+      const streamKey = await createStream(3);
+
+      const topUp = await fhevm
+        .createEncryptedInput(payrollAddress, signers.employer.address)
+        .add128(250n)
+        .encrypt();
+
+      await payroll.connect(signers.employer).topUp(streamKey, topUp.handles[0], topUp.inputProof);
+
+      await expect(
+        payroll.connect(signers.employer).cancelStream(streamKey),
+      ).to.emit(oracle, "OutstandingRecorded");
+
+      const outstanding = await decryptOutstanding(streamKey);
+      expect(Number(outstanding)).to.be.closeTo(250, 16);
+      const lastCancel = await oracle.lastCancellationTimestamp(streamKey);
+      expect(lastCancel).to.be.gt(0n);
     });
   });
 

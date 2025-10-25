@@ -89,7 +89,7 @@ export default function PoIAttestationPanel() {
 
       // Encrypt the threshold (in wei)
       const enc = await encryptNumber({
-        value: Number(thresholdWei),
+        value: thresholdWei,
         bitSize: 128,
         contractAddress: oracleAddress,
         userAddress: verifierAddress

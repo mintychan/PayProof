@@ -6,12 +6,22 @@ export const ENCRYPTED_PAYROLL_ABI = [
   },
   {
     "inputs": [],
+    "name": "HookNotAllowlisted",
+    "type": "error"
+  },
+  {
+    "inputs": [],
     "name": "InvalidEmployee",
     "type": "error"
   },
   {
     "inputs": [],
     "name": "InvalidRate",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "NotAuthorized",
     "type": "error"
   },
   {
@@ -26,6 +36,11 @@ export const ENCRYPTED_PAYROLL_ABI = [
   },
   {
     "inputs": [],
+    "name": "StreamNotCancelable",
+    "type": "error"
+  },
+  {
+    "inputs": [],
     "name": "StreamNotFound",
     "type": "error"
   },
@@ -34,8 +49,46 @@ export const ENCRYPTED_PAYROLL_ABI = [
     "inputs": [
       {
         "indexed": true,
+        "internalType": "address",
+        "name": "previousAdmin",
+        "type": "address"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "newAdmin",
+        "type": "address"
+      }
+    ],
+    "name": "AdminTransferred",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "hook",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "bool",
+        "name": "allowed",
+        "type": "bool"
+      }
+    ],
+    "name": "HookAllowed",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
         "internalType": "bytes32",
-        "name": "streamId",
+        "name": "streamKey",
         "type": "bytes32"
       }
     ],
@@ -48,8 +101,39 @@ export const ENCRYPTED_PAYROLL_ABI = [
       {
         "indexed": true,
         "internalType": "bytes32",
-        "name": "streamId",
+        "name": "streamKey",
         "type": "bytes32"
+      },
+      {
+        "indexed": false,
+        "internalType": "bool",
+        "name": "cancelable",
+        "type": "bool"
+      },
+      {
+        "indexed": false,
+        "internalType": "bool",
+        "name": "transferable",
+        "type": "bool"
+      }
+    ],
+    "name": "StreamConfigured",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "bytes32",
+        "name": "streamKey",
+        "type": "bytes32"
+      },
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "streamId",
+        "type": "uint256"
       },
       {
         "indexed": true,
@@ -58,7 +142,7 @@ export const ENCRYPTED_PAYROLL_ABI = [
         "type": "address"
       },
       {
-        "indexed": true,
+        "indexed": false,
         "internalType": "address",
         "name": "employee",
         "type": "address"
@@ -91,7 +175,32 @@ export const ENCRYPTED_PAYROLL_ABI = [
       {
         "indexed": true,
         "internalType": "bytes32",
-        "name": "streamId",
+        "name": "streamKey",
+        "type": "bytes32"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "previousHook",
+        "type": "address"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "newHook",
+        "type": "address"
+      }
+    ],
+    "name": "StreamHookUpdated",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "bytes32",
+        "name": "streamKey",
         "type": "bytes32"
       }
     ],
@@ -104,7 +213,7 @@ export const ENCRYPTED_PAYROLL_ABI = [
       {
         "indexed": true,
         "internalType": "bytes32",
-        "name": "streamId",
+        "name": "streamKey",
         "type": "bytes32"
       }
     ],
@@ -117,7 +226,20 @@ export const ENCRYPTED_PAYROLL_ABI = [
       {
         "indexed": true,
         "internalType": "bytes32",
-        "name": "streamId",
+        "name": "streamKey",
+        "type": "bytes32"
+      }
+    ],
+    "name": "StreamSettled",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "bytes32",
+        "name": "streamKey",
         "type": "bytes32"
       },
       {
@@ -131,10 +253,78 @@ export const ENCRYPTED_PAYROLL_ABI = [
     "type": "event"
   },
   {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "bytes32",
+        "name": "streamKey",
+        "type": "bytes32"
+      },
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "streamId",
+        "type": "uint256"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "caller",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "address",
+        "name": "to",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "bytes32",
+        "name": "amountHandle",
+        "type": "bytes32"
+      }
+    ],
+    "name": "StreamWithdrawn",
+    "type": "event"
+  },
+  {
+    "inputs": [],
+    "name": "admin",
+    "outputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "hook",
+        "type": "address"
+      },
+      {
+        "internalType": "bool",
+        "name": "allowed",
+        "type": "bool"
+      }
+    ],
+    "name": "allowHook",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
     "inputs": [
       {
         "internalType": "bytes32",
-        "name": "streamId",
+        "name": "streamKey",
         "type": "bytes32"
       }
     ],
@@ -170,6 +360,29 @@ export const ENCRYPTED_PAYROLL_ABI = [
   {
     "inputs": [
       {
+        "internalType": "bytes32",
+        "name": "streamKey",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "bool",
+        "name": "cancelable",
+        "type": "bool"
+      },
+      {
+        "internalType": "bool",
+        "name": "transferable",
+        "type": "bool"
+      }
+    ],
+    "name": "configureStream",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
         "internalType": "address",
         "name": "employee",
         "type": "address"
@@ -199,7 +412,7 @@ export const ENCRYPTED_PAYROLL_ABI = [
     "outputs": [
       {
         "internalType": "bytes32",
-        "name": "streamId",
+        "name": "streamKey",
         "type": "bytes32"
       }
     ],
@@ -210,7 +423,7 @@ export const ENCRYPTED_PAYROLL_ABI = [
     "inputs": [
       {
         "internalType": "bytes32",
-        "name": "streamId",
+        "name": "streamKey",
         "type": "bytes32"
       }
     ],
@@ -219,7 +432,7 @@ export const ENCRYPTED_PAYROLL_ABI = [
       {
         "internalType": "euint128",
         "name": "",
-        "type": "uint256"
+        "type": "bytes32"
       }
     ],
     "stateMutability": "nonpayable",
@@ -229,7 +442,7 @@ export const ENCRYPTED_PAYROLL_ABI = [
     "inputs": [
       {
         "internalType": "bytes32",
-        "name": "streamId",
+        "name": "streamKey",
         "type": "bytes32"
       }
     ],
@@ -278,7 +491,51 @@ export const ENCRYPTED_PAYROLL_ABI = [
     "inputs": [
       {
         "internalType": "bytes32",
+        "name": "streamKey",
+        "type": "bytes32"
+      }
+    ],
+    "name": "getStreamConfig",
+    "outputs": [
+      {
+        "internalType": "uint256",
         "name": "streamId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "bool",
+        "name": "cancelable",
+        "type": "bool"
+      },
+      {
+        "internalType": "bool",
+        "name": "transferable",
+        "type": "bool"
+      },
+      {
+        "internalType": "address",
+        "name": "hook",
+        "type": "address"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "bufferedHandle",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "withdrawnHandle",
+        "type": "bytes32"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "streamKey",
         "type": "bytes32"
       }
     ],
@@ -291,7 +548,7 @@ export const ENCRYPTED_PAYROLL_ABI = [
     "inputs": [
       {
         "internalType": "bytes32",
-        "name": "streamId",
+        "name": "streamKey",
         "type": "bytes32"
       },
       {
@@ -305,17 +562,30 @@ export const ENCRYPTED_PAYROLL_ABI = [
       {
         "internalType": "euint128",
         "name": "",
-        "type": "uint256"
+        "type": "bytes32"
       }
     ],
     "stateMutability": "nonpayable",
     "type": "function"
   },
   {
+    "inputs": [],
+    "name": "protocolId",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "pure",
+    "type": "function"
+  },
+  {
     "inputs": [
       {
         "internalType": "bytes32",
-        "name": "streamId",
+        "name": "streamKey",
         "type": "bytes32"
       }
     ],
@@ -328,7 +598,63 @@ export const ENCRYPTED_PAYROLL_ABI = [
     "inputs": [
       {
         "internalType": "bytes32",
+        "name": "streamKey",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "address",
+        "name": "hook",
+        "type": "address"
+      }
+    ],
+    "name": "setStreamHook",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "streamKey",
+        "type": "bytes32"
+      }
+    ],
+    "name": "streamIdFor",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
         "name": "streamId",
+        "type": "uint256"
+      }
+    ],
+    "name": "streamKeyFor",
+    "outputs": [
+      {
+        "internalType": "bytes32",
+        "name": "",
+        "type": "bytes32"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "streamKey",
         "type": "bytes32"
       }
     ],
@@ -341,7 +667,7 @@ export const ENCRYPTED_PAYROLL_ABI = [
     "inputs": [
       {
         "internalType": "bytes32",
-        "name": "streamId",
+        "name": "streamKey",
         "type": "bytes32"
       },
       {
@@ -356,6 +682,37 @@ export const ENCRYPTED_PAYROLL_ABI = [
       }
     ],
     "name": "topUp",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "newAdmin",
+        "type": "address"
+      }
+    ],
+    "name": "transferAdmin",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "streamKey",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "address",
+        "name": "to",
+        "type": "address"
+      }
+    ],
+    "name": "withdrawMax",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"

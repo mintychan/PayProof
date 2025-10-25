@@ -1,22 +1,45 @@
 "use client";
 
-import { useState, useEffect, useMemo, use } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import { useAccount, useWalletClient } from "wagmi";
-import { encryptedPayrollContract, StreamStatus } from "../../../lib/contracts/encryptedPayrollContract";
+import { encryptedPayrollContract, StreamStatus, EncryptedStream } from "../../../lib/contracts/encryptedPayrollContract";
 import { WalletConnectPrompt } from "../../../components/WalletConnect";
 import { useFhevm } from "../../../providers/FhevmProvider";
-import { formatEther, ethers } from "ethers";
+import { formatEther, parseEther, ethers } from "ethers";
 
-export default function EncryptedStreamPage({ params }: { params: Promise<{ id: string }> }) {
-  const resolvedParams = use(params);
-  const { address, isConnected } = useAccount();
-  const { ready: fheReady, initializing, instance } = useFhevm();
-  const { data: walletClient } = useWalletClient();
-  const [stream, setStream] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
+type StreamPageParams = { id: string } | Promise<{ id: string }>;
+
+export default function EncryptedStreamPage({ params }: { params: StreamPageParams }) {
+const { address, isConnected } = useAccount();
+const { ready: fheReady, initializing, instance, encryptNumber } = useFhevm();
+const { data: walletClient } = useWalletClient();
+const [stream, setStream] = useState<EncryptedStream | null>(null);
+const [loading, setLoading] = useState(true);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [actionMessage, setActionMessage] = useState<string | null>(null);
+  const [withdrawing, setWithdrawing] = useState(false);
+  const [canceling, setCanceling] = useState(false);
+  const [topUpAmount, setTopUpAmount] = useState("");
+  const [topUpLoading, setTopUpLoading] = useState(false);
+  const [streamKey, setStreamKey] = useState<string | null>(null);
+  const [balanceHandle, setBalanceHandle] = useState<string | null>(null);
+  const [checkingBalance, setCheckingBalance] = useState(false);
   const [decryptedRate, setDecryptedRate] = useState<string | null>(null);
+  const [decryptedBalances, setDecryptedBalances] = useState<
+    | {
+        streamed: string;
+        withdrawn: string;
+        available: string | null;
+        buffered: string;
+        debt: string;
+      }
+    | null
+  >(null);
   const [decrypting, setDecrypting] = useState(false);
   const [decryptError, setDecryptError] = useState<string | null>(null);
+  const [mounted, setMounted] = useState(false);
+
+  const payrollContractAddress = process.env.NEXT_PUBLIC_PAYPROOF_PAYROLL_CONTRACT?.trim() || "";
 
   // Create ethers signer from wagmi wallet client
   const ethersSigner = useMemo(() => {
@@ -33,22 +56,65 @@ export default function EncryptedStreamPage({ params }: { params: Promise<{ id: 
   }, [walletClient, address]);
 
   useEffect(() => {
-    const fetchStream = async () => {
-      setLoading(true);
-      try {
-        const data = await encryptedPayrollContract.getStream(resolvedParams.id);
-        setStream(data);
-      } catch (error) {
-        console.error("Error fetching stream:", error);
-      } finally {
-        setLoading(false);
+    let cancelled = false;
+    Promise.resolve(params).then((resolved) => {
+      if (!cancelled) {
+        setStreamKey(resolved.id);
       }
+    });
+    return () => {
+      cancelled = true;
     };
+  }, [params]);
 
-    if (resolvedParams.id) {
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  const fetchStream = useCallback(async () => {
+    if (!streamKey) return;
+    setLoading(true);
+    try {
+      const data = await encryptedPayrollContract.getStream(streamKey);
+      setStream(data);
+      setBalanceHandle(null);
+      setActionError(null);
+      setDecryptedRate(null);
+      setDecryptedBalances(null);
+    } catch (error) {
+      console.error("Error fetching stream:", error);
+    } finally {
+      setLoading(false);
+    }
+  }, [streamKey]);
+
+  useEffect(() => {
+    if (streamKey) {
       fetchStream();
     }
-  }, [resolvedParams.id]);
+  }, [streamKey, fetchStream]);
+
+  const formatEthDisplay = useCallback((value: string | null, decimals = 3) => {
+    if (!value) {
+      return "0.000";
+    }
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric)) {
+      return value;
+    }
+    return numeric.toFixed(decimals);
+  }, []);
+
+  if (!mounted) {
+    return (
+      <div className="flex min-h-[60vh] items-center justify-center">
+        <div className="text-center">
+          <div className="mx-auto h-12 w-12 animate-spin rounded-full border-4 border-sky-500 border-t-transparent"></div>
+          <p className="mt-4 text-sm text-slate-400">Loading stream...</p>
+        </div>
+      </div>
+    );
+  }
 
   if (!isConnected) {
     return <WalletConnectPrompt />;
@@ -82,6 +148,15 @@ export default function EncryptedStreamPage({ params }: { params: Promise<{ id: 
     );
   }
 
+  const streamedDisplay = `ETH ${formatEthDisplay(decryptedBalances?.streamed ?? null, 6)}`;
+  const withdrawnDisplay = `ETH ${formatEthDisplay(decryptedBalances?.withdrawn ?? null, 6)}`;
+  const availableDisplay =
+    decryptedBalances?.available !== null && decryptedBalances?.available !== undefined
+      ? `ETH ${formatEthDisplay(decryptedBalances?.available ?? null, 6)}`
+      : "Pending";
+  const debtDisplay = `ETH ${formatEthDisplay(decryptedBalances?.debt ?? null, 6)}`;
+  const bufferedDisplay = `ETH ${formatEthDisplay(decryptedBalances?.buffered ?? null, 6)}`;
+
   const isAuthorized =
     address?.toLowerCase() === stream.employer.toLowerCase() ||
     address?.toLowerCase() === stream.employee.toLowerCase();
@@ -90,7 +165,9 @@ export default function EncryptedStreamPage({ params }: { params: Promise<{ id: 
     ? "employer"
     : "employee";
 
-  const handleDecrypt = async () => {
+  const isEmployer = viewRole === "employer";
+
+  const handleDecrypt = async (balanceHandleOverride?: string | null) => {
     if (!isAuthorized) {
       setDecryptError("You are not authorized to decrypt this stream's data");
       return;
@@ -110,10 +187,9 @@ export default function EncryptedStreamPage({ params }: { params: Promise<{ id: 
     setDecryptError(null);
 
     try {
-      console.log("Decrypting rate handle:", stream.rateHandle);
+      console.log("Decrypting handles for stream", stream.streamKey);
 
-      const payrollContract = process.env.NEXT_PUBLIC_PAYPROOF_PAYROLL_CONTRACT;
-      if (!payrollContract) {
+      if (!payrollContractAddress) {
         throw new Error("Payroll contract address not configured");
       }
 
@@ -123,12 +199,12 @@ export default function EncryptedStreamPage({ params }: { params: Promise<{ id: 
       // Create EIP-712 signature request
       const startTimestamp = Math.floor(Date.now() / 1000);
       const durationDays = 365;
-      const eip712 = (instance as any).createEIP712(
-        publicKey,
-        [payrollContract],
-        startTimestamp,
-        durationDays
-      );
+        const eip712 = (instance as any).createEIP712(
+          publicKey,
+          [payrollContractAddress],
+          startTimestamp,
+          durationDays
+        );
 
       // Request user signature
       const signature = await (ethersSigner as any).signTypedData(
@@ -139,29 +215,73 @@ export default function EncryptedStreamPage({ params }: { params: Promise<{ id: 
 
       console.log("Signature obtained, decrypting...");
 
-      // Decrypt using userDecrypt
+      const handleInputs: Array<{ handle: string; contractAddress: string }> = [
+        { handle: stream.rateHandle, contractAddress: payrollContractAddress },
+      ];
+
+      const bufferedHandleValid = stream.bufferedHandle && stream.bufferedHandle !== "0x" && stream.bufferedHandle !== "0x0";
+      const withdrawnHandleValid = stream.withdrawnHandle && stream.withdrawnHandle !== "0x" && stream.withdrawnHandle !== "0x0";
+      const balanceHandleCandidate = balanceHandleOverride ?? balanceHandle;
+      const balanceHandleValid =
+        balanceHandleCandidate &&
+        balanceHandleCandidate !== "0x" &&
+        balanceHandleCandidate !== "0x0";
+
+      if (bufferedHandleValid) {
+        handleInputs.push({ handle: stream.bufferedHandle, contractAddress: payrollContractAddress });
+      }
+      if (withdrawnHandleValid) {
+        handleInputs.push({ handle: stream.withdrawnHandle, contractAddress: payrollContractAddress });
+      }
+      if (balanceHandleValid && balanceHandleCandidate) {
+        handleInputs.push({ handle: balanceHandleCandidate, contractAddress: payrollContractAddress });
+      }
+
       const results = await (instance as any).userDecrypt(
-        [{ handle: stream.rateHandle, contractAddress: payrollContract }],
+        handleInputs,
         privateKey,
         publicKey,
         signature,
-        [payrollContract],
+        [payrollContractAddress],
         address,
         startTimestamp,
         durationDays
       );
 
-      const decryptedValue = results[stream.rateHandle];
-      console.log("Decrypted rate per second (wei):", decryptedValue);
-
-      // Convert from wei per second to ETH per month
-      const ratePerSecondWei = BigInt(decryptedValue);
+      const ratePerSecondWei = BigInt(results[stream.rateHandle] ?? 0);
       const ratePerMonthWei = ratePerSecondWei * BigInt(30 * 24 * 60 * 60);
       const ratePerMonthETH = formatEther(ratePerMonthWei);
 
       console.log("Rate per month (ETH):", ratePerMonthETH);
 
       setDecryptedRate(ratePerMonthETH);
+
+      if (bufferedHandleValid || withdrawnHandleValid || balanceHandleValid) {
+        const bufferedWei = bufferedHandleValid ? BigInt(results[stream.bufferedHandle]) : 0n;
+        const withdrawnWei = withdrawnHandleValid ? BigInt(results[stream.withdrawnHandle]) : 0n;
+        const availableWei = balanceHandleValid && balanceHandleCandidate ? BigInt(results[balanceHandleCandidate]) : null;
+
+        let streamedWei: bigint = 0n;
+        if (availableWei !== null) {
+          streamedWei = availableWei + withdrawnWei - bufferedWei;
+        } else {
+          streamedWei = withdrawnWei >= bufferedWei ? withdrawnWei - bufferedWei : 0n;
+        }
+
+        if (streamedWei < 0n) {
+          streamedWei = 0n;
+        }
+
+        const debtWei = streamedWei + bufferedWei < withdrawnWei ? withdrawnWei - streamedWei - bufferedWei : 0n;
+
+        setDecryptedBalances({
+          streamed: formatEther(streamedWei),
+          withdrawn: formatEther(withdrawnWei),
+          available: availableWei !== null ? formatEther(availableWei) : null,
+          buffered: formatEther(bufferedWei),
+          debt: formatEther(debtWei),
+        });
+      }
     } catch (error: any) {
       console.error("Decryption error:", error);
       setDecryptError(error?.message || "Failed to decrypt. Make sure you have permission to decrypt this stream.");
@@ -177,6 +297,135 @@ export default function EncryptedStreamPage({ params }: { params: Promise<{ id: 
     const elapsed = now - stream.startTime;
     const cadenceProgress = (elapsed % stream.cadenceInSeconds) / stream.cadenceInSeconds;
     return cadenceProgress * 100;
+  };
+
+  const handleWithdraw = async () => {
+    if (!stream) return;
+    if (!isAuthorized || !address) {
+      setActionError("Only the employer or employee can withdraw.");
+      return;
+    }
+
+    setActionError(null);
+    setActionMessage(null);
+    setWithdrawing(true);
+    try {
+      const txHash = await encryptedPayrollContract.withdrawMax(stream.streamKey, address);
+      setActionMessage(`Withdrawal sent: ${txHash.slice(0, 10)}…`);
+      await fetchStream();
+    } catch (error: any) {
+      console.error("Withdraw error", error);
+      setActionError(error?.message ?? "Failed to withdraw");
+    } finally {
+      setWithdrawing(false);
+    }
+  };
+
+  const handleCancel = async () => {
+    if (!stream) return;
+    if (!isEmployer) {
+      setActionError("Only the employer can cancel the stream.");
+      return;
+    }
+    if (!stream.cancelable) {
+      setActionError("This stream can no longer be cancelled.");
+      return;
+    }
+
+    setActionError(null);
+    setActionMessage(null);
+    setCanceling(true);
+    try {
+      const txHash = await encryptedPayrollContract.cancelStream(stream.streamKey);
+      setActionMessage(`Cancellation sent: ${txHash.slice(0, 10)}…`);
+      await fetchStream();
+    } catch (error: any) {
+      console.error("Cancel error", error);
+      setActionError(error?.message ?? "Failed to cancel stream");
+    } finally {
+      setCanceling(false);
+    }
+  };
+
+  const handleTopUp = async () => {
+    if (!stream) return;
+    if (!isEmployer) {
+      setActionError("Only the employer can top up the stream.");
+      return;
+    }
+    if (!topUpAmount || Number(topUpAmount) <= 0) {
+      setActionError("Enter a positive amount to top up.");
+      return;
+    }
+    if (!address) {
+      setActionError("Connect your wallet to top up the stream.");
+      return;
+    }
+    if (!encryptNumber) {
+      setActionError("fhEVM encryption is not ready yet.");
+      return;
+    }
+    if (!payrollContractAddress) {
+      setActionError("Payroll contract address is missing in configuration.");
+      return;
+    }
+
+    setTopUpLoading(true);
+    setActionError(null);
+    setActionMessage(null);
+    try {
+      const amountWei = parseEther(topUpAmount);
+      const encrypted = await encryptNumber({
+        value: amountWei,
+        bitSize: 128,
+        contractAddress: payrollContractAddress,
+        userAddress: address,
+      });
+
+      const txHash = await encryptedPayrollContract.topUp(stream.streamKey, encrypted.handle, encrypted.proof);
+      setActionMessage(`Top-up sent: ${txHash.slice(0, 10)}…`);
+      setTopUpAmount("");
+      await fetchStream();
+    } catch (error: any) {
+      console.error("Top-up error", error);
+      setActionError(error?.message ?? "Failed to top up stream");
+    } finally {
+      setTopUpLoading(false);
+    }
+  };
+
+  const handleCheckBalance = async (): Promise<string | null> => {
+    if (!stream) return null;
+    if (!address) {
+      setActionError("Connect your wallet to query the encrypted balance.");
+      return null;
+    }
+    let fetchedHandle: string | null = null;
+    try {
+      setActionError(null);
+      setActionMessage(null);
+      setCheckingBalance(true);
+      const handle = await encryptedPayrollContract.encryptedBalanceOf(stream.streamKey);
+      setBalanceHandle(handle);
+      fetchedHandle = handle;
+    } catch (error: any) {
+      console.error("Balance query error", error);
+      setActionError(error?.message ?? "Failed to query encrypted balance");
+      fetchedHandle = null;
+    } finally {
+      setCheckingBalance(false);
+    }
+    return fetchedHandle;
+  };
+
+  const handleRevealBalance = async () => {
+    if (!stream) return;
+    if (checkingBalance || decrypting) return;
+    const fetchedHandle = await handleCheckBalance();
+    if (!fetchedHandle) {
+      return;
+    }
+    await handleDecrypt(fetchedHandle);
   };
 
   return (
@@ -263,9 +512,10 @@ export default function EncryptedStreamPage({ params }: { params: Promise<{ id: 
 
               {/* Small status indicator */}
               <div className="absolute -top-2 -right-2">
-                <div className={`h-4 w-4 rounded-full ${
+              <div className={`h-4 w-4 rounded-full ${
                   stream.status === StreamStatus.Active ? 'bg-emerald-500' :
                   stream.status === StreamStatus.Paused ? 'bg-amber-500' :
+                  stream.status === StreamStatus.Settled ? 'bg-sky-400' :
                   'bg-slate-500'
                 } shadow-lg`} />
               </div>
@@ -377,8 +627,9 @@ export default function EncryptedStreamPage({ params }: { params: Promise<{ id: 
                 <div>
                   <p className="text-xs text-slate-500">Status</p>
                   <p className="mt-1 text-sm font-medium text-white">
-                    {stream.status === StreamStatus.Active ? "Streaming" :
-                     stream.status === StreamStatus.Paused ? "Paused" : "Cancelled"}
+                  {stream.status === StreamStatus.Active ? "Streaming" :
+                     stream.status === StreamStatus.Paused ? "Paused" :
+                     stream.status === StreamStatus.Settled ? "Settled" : "Cancelled"}
                   </p>
                 </div>
               </div>
@@ -451,7 +702,7 @@ export default function EncryptedStreamPage({ params }: { params: Promise<{ id: 
                 <div className="h-2 w-2 rounded-full bg-blue-500"></div>
                 <span className="text-sm text-slate-300">Streamed amount</span>
               </div>
-              <span className="font-mono text-sm font-medium text-white">USDC 0.000637</span>
+              <span className="font-mono text-sm font-medium text-white">{streamedDisplay}</span>
             </div>
 
             <div className="flex items-center justify-between">
@@ -461,7 +712,7 @@ export default function EncryptedStreamPage({ params }: { params: Promise<{ id: 
                 </svg>
                 <span className="text-sm text-slate-300">Withdrawn amount</span>
               </div>
-              <span className="font-mono text-sm font-medium text-white">USDC 0</span>
+              <span className="font-mono text-sm font-medium text-white">{withdrawnDisplay}</span>
             </div>
 
             <div className="flex items-center justify-between">
@@ -471,7 +722,22 @@ export default function EncryptedStreamPage({ params }: { params: Promise<{ id: 
                 </svg>
                 <span className="text-sm text-slate-300">Available to withdraw</span>
               </div>
-              <span className="font-mono text-sm font-medium text-white">USDC 0</span>
+              {isAuthorized ? (
+                availableDisplay === "Pending" ? (
+                  <button
+                    type="button"
+                    onClick={() => void handleRevealBalance()}
+                    disabled={checkingBalance || decrypting || !fheReady}
+                    className="rounded-full border border-white/10 bg-slate-900/70 px-3 py-1.5 text-xs font-medium text-white transition hover:border-emerald-400/40 hover:text-emerald-200 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {checkingBalance || decrypting ? "Decrypting…" : "Decrypt balance"}
+                  </button>
+                ) : (
+                  <span className="font-mono text-sm font-medium text-white">{availableDisplay}</span>
+                )
+              ) : (
+                <span className="font-mono text-sm font-medium text-slate-500">🔒 Encrypted</span>
+              )}
             </div>
 
             <div className="flex items-center justify-between">
@@ -481,7 +747,7 @@ export default function EncryptedStreamPage({ params }: { params: Promise<{ id: 
                 </svg>
                 <span className="text-sm text-slate-300">Debt</span>
               </div>
-              <span className="font-mono text-sm font-medium text-white">USDC 0.000637</span>
+              <span className="font-mono text-sm font-medium text-white">{debtDisplay}</span>
             </div>
 
             <div className="flex items-center justify-between">
@@ -489,7 +755,7 @@ export default function EncryptedStreamPage({ params }: { params: Promise<{ id: 
                 <div className="h-2 w-2 rounded-full bg-purple-500"></div>
                 <span className="text-sm text-slate-300">Refundable</span>
               </div>
-              <span className="font-mono text-sm font-medium text-white">USDC 0</span>
+              <span className="font-mono text-sm font-medium text-white">{bufferedDisplay}</span>
             </div>
           </div>
 
@@ -521,22 +787,89 @@ export default function EncryptedStreamPage({ params }: { params: Promise<{ id: 
           </div>
 
           {/* Actions */}
-          <div>
-            <h3 className="mb-4 text-sm font-semibold text-white">Actions</h3>
-            <div className="grid grid-cols-2 gap-4">
-              <button className="rounded-2xl border border-white/5 bg-slate-900/40 px-4 py-3 text-sm font-medium text-white backdrop-blur transition hover:border-white/10">
-                Details
+          <div className="rounded-2xl border border-white/5 bg-slate-900/40 p-5 backdrop-blur space-y-4">
+            <div>
+              <h3 className="text-sm font-semibold text-white">Manage Stream</h3>
+              <p className="mt-1 text-xs text-slate-500">
+                Employers can top up or cancel. Both parties may withdraw encrypted balances.
+              </p>
+            </div>
+            {actionError && (
+              <div className="rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-xs text-red-200">
+                {actionError}
+              </div>
+            )}
+            {actionMessage && (
+              <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3 text-xs text-emerald-200">
+                {actionMessage}
+              </div>
+            )}
+            <div className="space-y-2">
+              <label className="text-xs font-medium text-slate-300">Top up amount (ETH)</label>
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <input
+                  className="flex-1 rounded-xl border border-slate-800 bg-slate-950/80 px-4 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/30"
+                  type="number"
+                  min="0"
+                  step="any"
+                  value={topUpAmount}
+                  onChange={(event) => setTopUpAmount(event.target.value)}
+                  placeholder="0.10"
+                  disabled={!isEmployer || !fheReady || topUpLoading}
+                />
+                <button
+                  type="button"
+                  onClick={handleTopUp}
+                  disabled={!isEmployer || !fheReady || topUpLoading}
+                  className="rounded-xl bg-gradient-to-r from-sky-500 to-emerald-400 px-4 py-2 text-sm font-semibold text-slate-950 transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {topUpLoading ? "Encrypting…" : "Encrypt & Top Up"}
+                </button>
+              </div>
+              <p className="text-[11px] text-slate-500">
+                Amounts are encrypted locally using fhEVM before being sent on-chain.
+              </p>
+            </div>
+            <div className="grid gap-2 sm:grid-cols-2">
+              <button
+                type="button"
+                onClick={handleWithdraw}
+                disabled={!isAuthorized || withdrawing}
+                className="rounded-xl border border-white/5 bg-slate-950/60 px-4 py-2 text-sm font-medium text-white transition hover:border-emerald-400/40 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {withdrawing ? "Withdrawing…" : "Withdraw available"}
               </button>
-              <button className="rounded-2xl border border-white/5 bg-slate-900/40 px-4 py-3 text-sm font-medium text-white backdrop-blur transition hover:border-white/10">
-                History
+              <button
+                type="button"
+                onClick={handleCancel}
+                disabled={!isEmployer || !stream.cancelable || canceling}
+                className="rounded-xl border border-white/5 bg-slate-950/60 px-4 py-2 text-sm font-medium text-white transition hover:border-red-400/40 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {canceling ? "Cancelling…" : "Cancel stream"}
               </button>
-              <button className="rounded-2xl border border-white/5 bg-slate-900/40 px-4 py-3 text-sm font-medium text-white backdrop-blur transition hover:border-white/10">
-                Withdraw
+              <button
+                type="button"
+                onClick={() => void handleCheckBalance()}
+                disabled={checkingBalance}
+                className="rounded-xl border border-white/5 bg-slate-950/60 px-4 py-2 text-sm font-medium text-white transition hover:border-blue-400/40 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {checkingBalance ? "Requesting…" : "Get encrypted balance"}
               </button>
-              <button className="rounded-2xl border border-white/5 bg-slate-900/40 px-4 py-3 text-sm font-medium text-white backdrop-blur transition hover:border-white/10">
-                Top Up
+              <button
+                type="button"
+                onClick={() => void fetchStream()}
+                disabled={loading}
+                className="rounded-xl border border-white/5 bg-slate-950/60 px-4 py-2 text-sm font-medium text-white transition hover:border-white/20 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {loading ? "Refreshing…" : "Refresh data"}
               </button>
             </div>
+            {balanceHandle && (
+              <div className="rounded-xl border border-white/5 bg-slate-950/40 px-4 py-3 text-[11px] font-mono leading-relaxed text-slate-300">
+                Encrypted balance handle:
+                <div className="mt-1 break-all text-slate-400">{balanceHandle}</div>
+              </div>
+            )}
           </div>
 
           {/* Decryption Section */}

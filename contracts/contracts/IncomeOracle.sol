@@ -4,10 +4,11 @@ pragma solidity ^0.8.24;
 import {FHE, ebool, euint8, euint128, externalEuint128} from "@fhevm/solidity/lib/FHE.sol";
 import {SepoliaConfig} from "@fhevm/solidity/config/ZamaConfig.sol";
 import "./EncryptedPayroll.sol";
+import {IConfidentialLockupRecipient} from "./interfaces/IConfidentialLockupRecipient.sol";
 
 /// @title IncomeOracle
 /// @notice Threshold proof-of-income attestations sourced from EncryptedPayroll streams.
-contract IncomeOracle is SepoliaConfig {
+contract IncomeOracle is SepoliaConfig, IConfidentialLockupRecipient {
     enum Tier {
         None,
         C,
@@ -23,6 +24,16 @@ contract IncomeOracle is SepoliaConfig {
 
     EncryptedPayroll public immutable payroll;
 
+    mapping(bytes32 streamKey => euint128 paid) private _paidAmount;
+    mapping(bytes32 streamKey => euint128 outstanding) private _outstandingOnCancel;
+    mapping(bytes32 streamKey => uint64 timestamp) public lastPaymentTimestamp;
+    mapping(bytes32 streamKey => uint64 timestamp) public lastCancellationTimestamp;
+
+    event PaidAmountUpdated(bytes32 indexed streamKey, uint256 indexed streamId, bytes32 amountHandle);
+    event OutstandingRecorded(bytes32 indexed streamKey, uint256 indexed streamId, bytes32 recipientAmountHandle);
+
+    error UnauthorizedHookCaller();
+
     event Attested(
         address indexed employee,
         bytes32 indexed streamId,
@@ -36,6 +47,71 @@ contract IncomeOracle is SepoliaConfig {
 
     constructor(EncryptedPayroll _payroll) {
         payroll = _payroll;
+    }
+
+    function onConfidentialLockupWithdraw(
+        uint256 streamId,
+        address caller,
+        address to,
+        bytes32 amountHandle
+    ) external override returns (bytes4) {
+        if (msg.sender != address(payroll)) revert UnauthorizedHookCaller();
+
+        bytes32 streamKey = payroll.streamKeyFor(streamId);
+        euint128 amount = _asEuint128(amountHandle);
+        euint128 current = _loadPaid(streamKey);
+        euint128 updated = FHE.add(current, amount);
+
+        _storePaid(streamKey, updated);
+        lastPaymentTimestamp[streamKey] = uint64(block.timestamp);
+
+        (address employerAddr, address employee, , , , , ) = payroll.getStream(streamKey);
+
+        FHE.allowThis(updated);
+        FHE.allow(updated, employee);
+        FHE.allow(updated, employerAddr);
+        FHE.allow(updated, caller);
+        FHE.allow(updated, to);
+
+        emit PaidAmountUpdated(streamKey, streamId, euint128.unwrap(updated));
+        return IConfidentialLockupRecipient.onConfidentialLockupWithdraw.selector;
+    }
+
+    function onConfidentialLockupCancel(
+        uint256 streamId,
+        address caller,
+        bytes32 /*senderAmountHandle*/,
+        bytes32 recipientAmountHandle
+    ) external override returns (bytes4) {
+        if (msg.sender != address(payroll)) revert UnauthorizedHookCaller();
+
+        bytes32 streamKey = payroll.streamKeyFor(streamId);
+        euint128 outstanding = _asEuint128(recipientAmountHandle);
+
+        _outstandingOnCancel[streamKey] = outstanding;
+        lastCancellationTimestamp[streamKey] = uint64(block.timestamp);
+
+        (address employerAddr, address employee, , , , , ) = payroll.getStream(streamKey);
+
+        FHE.allowThis(outstanding);
+        FHE.allow(outstanding, employee);
+        FHE.allow(outstanding, employerAddr);
+        FHE.allow(outstanding, caller);
+
+        emit OutstandingRecorded(streamKey, streamId, euint128.unwrap(outstanding));
+        return IConfidentialLockupRecipient.onConfidentialLockupCancel.selector;
+    }
+
+    function encryptedPaidAmount(bytes32 streamKey) external returns (euint128) {
+        euint128 paid = _loadPaid(streamKey);
+        FHE.allowThis(paid);
+        return FHE.allowTransient(paid, msg.sender);
+    }
+
+    function encryptedOutstandingOnCancel(bytes32 streamKey) external returns (euint128) {
+        euint128 outstanding = _loadOutstanding(streamKey);
+        FHE.allowThis(outstanding);
+        return FHE.allowTransient(outstanding, msg.sender);
     }
 
     function attestMonthlyIncome(
@@ -102,5 +178,32 @@ contract IncomeOracle is SepoliaConfig {
         );
 
         return tierValue;
+    }
+
+    function _asEuint128(bytes32 handle) private returns (euint128) {
+        if (handle == bytes32(0)) {
+            return FHE.asEuint128(uint128(0));
+        }
+        return euint128.wrap(handle);
+    }
+
+    function _loadPaid(bytes32 streamKey) private returns (euint128) {
+        euint128 value = _paidAmount[streamKey];
+        if (!FHE.isInitialized(value)) {
+            return FHE.asEuint128(uint128(0));
+        }
+        return value;
+    }
+
+    function _loadOutstanding(bytes32 streamKey) private returns (euint128) {
+        euint128 value = _outstandingOnCancel[streamKey];
+        if (!FHE.isInitialized(value)) {
+            return FHE.asEuint128(uint128(0));
+        }
+        return value;
+    }
+
+    function _storePaid(bytes32 streamKey, euint128 value) private {
+        _paidAmount[streamKey] = value;
     }
 }

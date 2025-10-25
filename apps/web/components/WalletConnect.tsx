@@ -1,12 +1,17 @@
 "use client";
 
 import { useAccount, useConnect, useDisconnect } from "wagmi";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 
 export function WalletConnect() {
+  const [mounted, setMounted] = useState(false);
   const { address, isConnected, chain } = useAccount();
   const { connect, connectors, isPending } = useConnect();
   const { disconnect } = useDisconnect();
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   useEffect(() => {
     if (isConnected && chain?.id !== 11155111) {
@@ -14,6 +19,17 @@ export function WalletConnect() {
       console.warn("Please switch to Sepolia network");
     }
   }, [isConnected, chain]);
+
+  if (!mounted) {
+    return (
+      <button
+        disabled
+        className="rounded-full border border-white/10 bg-slate-900/70 px-4 py-2 text-xs font-medium text-slate-400 opacity-70"
+      >
+        Connecting wallet…
+      </button>
+    );
+  }
 
   if (isConnected && address) {
     return (

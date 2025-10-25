@@ -3,6 +3,7 @@
 import { useAccount } from "wagmi";
 import { WalletConnectPrompt } from "../../components/WalletConnect";
 import { useEncryptedStreams } from "../../hooks/useEncryptedStreams";
+import { StreamStatus } from "../../lib/contracts/encryptedPayrollContract";
 
 export default function EmployeePage() {
   const { address: employeeAddress, isConnected } = useAccount();
@@ -140,12 +141,23 @@ export default function EmployeePage() {
         </div>
       ) : (
         <div className="grid gap-4 lg:grid-cols-2">
-          {streams.map((stream) => (
-            <a
-              key={stream.streamId}
-              href={`/stream/${stream.streamId}`}
-              className="group rounded-3xl border border-white/5 bg-slate-900/40 p-6 backdrop-blur transition hover:border-blue-400/30 hover:bg-slate-900/60"
-            >
+          {streams.map((stream) => {
+            const status = stream.status as StreamStatus;
+            const statusBadge =
+              status === StreamStatus.Active
+                ? { label: "Active", className: "bg-emerald-500/20 text-emerald-400" }
+                : status === StreamStatus.Paused
+                ? { label: "Paused", className: "bg-amber-500/20 text-amber-400" }
+                : status === StreamStatus.Settled
+                ? { label: "Settled", className: "bg-sky-500/20 text-sky-300" }
+                : { label: "Cancelled", className: "bg-slate-500/20 text-slate-400" };
+
+            return (
+              <a
+                key={stream.streamId}
+                href={`/stream/${stream.streamId}`}
+                className="group rounded-3xl border border-white/5 bg-slate-900/40 p-6 backdrop-blur transition hover:border-blue-400/30 hover:bg-slate-900/60"
+              >
               {/* Header */}
               <div className="mb-4 flex items-start justify-between">
                 <div className="flex items-center gap-3">
@@ -163,15 +175,9 @@ export default function EmployeePage() {
                   </div>
                 </div>
                 <span
-                  className={`rounded-full px-2.5 py-1 text-xs font-medium ${
-                    stream.status === 1
-                      ? "bg-emerald-500/20 text-emerald-400"
-                      : stream.status === 2
-                      ? "bg-amber-500/20 text-amber-400"
-                      : "bg-slate-500/20 text-slate-400"
-                  }`}
+                  className={`rounded-full px-2.5 py-1 text-xs font-medium ${statusBadge.className}`}
                 >
-                  {stream.status === 1 ? "Active" : stream.status === 2 ? "Paused" : "Cancelled"}
+                  {statusBadge.label}
                 </span>
               </div>
 
@@ -212,8 +218,9 @@ export default function EmployeePage() {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                 </svg>
               </div>
-            </a>
-          ))}
+              </a>
+            );
+          })}
         </div>
       )}
 

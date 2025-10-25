@@ -4,6 +4,7 @@ import "@nomicfoundation/hardhat-ethers";
 import "@nomicfoundation/hardhat-network-helpers";
 import "@typechain/hardhat";
 import "solidity-coverage";
+import "@nomicfoundation/hardhat-verify";
 
 import * as dotenv from "dotenv";
 import { HardhatUserConfig } from "hardhat/config";
@@ -60,6 +61,12 @@ const config: HardhatUserConfig = {
   },
   mocha: {
     timeout: 400000
+  },
+  etherscan: {
+    apiKey: process.env.ETHERSCAN_API_KEY || "",
+  },
+  sourcify: {
+    enabled: false
   }
 };
 

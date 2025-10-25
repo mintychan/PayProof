@@ -1,10 +1,20 @@
-import { Contract, BrowserProvider } from "ethers";
+import { BrowserProvider, Contract } from "ethers";
 import { ENCRYPTED_PAYROLL_ABI } from "./EncryptedPayrollABI";
 
 const CONTRACT_ADDRESS = process.env.NEXT_PUBLIC_PAYPROOF_PAYROLL_CONTRACT || "";
 
+export enum StreamStatus {
+  None = 0,
+  Active = 1,
+  Paused = 2,
+  Cancelled = 3,
+  Settled = 4,
+}
+
 export interface EncryptedStream {
-  streamId: string;
+  streamKey: string;
+  streamId: string; // alias for backwards compatibility with existing views
+  numericId: string;
   employer: string;
   employee: string;
   rateHandle: string;
@@ -12,21 +22,25 @@ export interface EncryptedStream {
   status: StreamStatus;
   startTime: number;
   lastAccruedAt: number;
-}
-
-export enum StreamStatus {
-  None = 0,
-  Active = 1,
-  Paused = 2,
-  Cancelled = 3,
+  cancelable: boolean;
+  transferable: boolean;
+  hook: string;
+  bufferedHandle: string;
+  withdrawnHandle: string;
 }
 
 export interface CreateEncryptedStreamParams {
   employee: string;
-  encryptedRatePerSecond: string; // Handle from fhEVM encryption
-  rateProof: string; // Proof from fhEVM encryption
+  encryptedRatePerSecond: string;
+  rateProof: string;
   cadenceInSeconds: number;
   startTime?: number;
+}
+
+export interface CreateStreamResult {
+  streamKey: string;
+  streamId: string;
+  transactionHash: string;
 }
 
 export class EncryptedPayrollContract {
@@ -37,7 +51,7 @@ export class EncryptedPayrollContract {
     return new BrowserProvider((window as any).ethereum);
   }
 
-  private async getContract(withSigner: boolean = false) {
+  private async getContract(withSigner = false) {
     if (!CONTRACT_ADDRESS) {
       throw new Error("EncryptedPayroll contract address not configured");
     }
@@ -53,31 +67,29 @@ export class EncryptedPayrollContract {
   }
 
   /**
-   * Compute the stream ID for a given employer and employee pair
+   * Compute the stream key (bytes32) for a given employer/employee pair.
    */
-  async computeStreamId(employer: string, employee: string): Promise<string> {
+  async computeStreamKey(employer: string, employee: string): Promise<string> {
     const contract = await this.getContract();
     return await contract.computeStreamId(employer, employee);
   }
 
   /**
-   * Create a new encrypted payroll stream
+   * Backwards-compatible alias for computeStreamKey.
+   */
+  async computeStreamId(employer: string, employee: string): Promise<string> {
+    return this.computeStreamKey(employer, employee);
+  }
+
+  /**
+   * Create a new confidential stream and return the emitted identifiers.
    */
   async createStream(
     employer: string,
     params: CreateEncryptedStreamParams
-  ): Promise<string> {
+  ): Promise<CreateStreamResult> {
     const contract = await this.getContract(true);
 
-    console.log("Creating encrypted stream with params:", {
-      employee: params.employee,
-      encryptedRateHandle: params.encryptedRatePerSecond,
-      proofLength: params.rateProof.length,
-      cadenceInSeconds: params.cadenceInSeconds,
-      startTime: params.startTime || 0,
-    });
-
-    // Create stream transaction
     const tx = await contract.createStream(
       params.employee,
       params.encryptedRatePerSecond,
@@ -86,14 +98,13 @@ export class EncryptedPayrollContract {
       params.startTime || 0
     );
 
-    console.log("Transaction sent:", tx.hash);
-
-    // Wait for confirmation
     const receipt = await tx.wait();
-    console.log("Transaction confirmed:", receipt);
 
-    // Parse stream ID from event
-    const event = receipt.logs.find((log: any) => {
+    if (!receipt) {
+      throw new Error("Transaction receipt unavailable");
+    }
+
+    const eventLog = receipt.logs.find((log: any) => {
       try {
         const parsed = contract.interface.parseLog(log);
         return parsed?.name === "StreamCreated";
@@ -102,56 +113,75 @@ export class EncryptedPayrollContract {
       }
     });
 
-    if (!event) {
-      throw new Error("StreamCreated event not found");
+    if (!eventLog) {
+      throw new Error("StreamCreated event not found in receipt");
     }
 
-    const parsedEvent = contract.interface.parseLog(event);
-    const streamId = parsedEvent?.args.streamId;
+    const parsedEvent = contract.interface.parseLog(eventLog);
+    const streamKey: string = parsedEvent?.args.streamKey;
+    const streamId: string = parsedEvent?.args.streamId?.toString?.() ?? "0";
 
-    console.log("Stream created with ID:", streamId);
-
-    return streamId;
+    return {
+      streamKey,
+      streamId,
+      transactionHash: tx.hash,
+    };
   }
 
   /**
-   * Get a specific encrypted stream
+   * Fetch stream metadata and config for a given stream key.
    */
-  async getStream(streamId: string): Promise<EncryptedStream | null> {
+  async getStream(streamKey: string): Promise<EncryptedStream | null> {
     try {
       const contract = await this.getContract();
-      const streamData = await contract.getStream(streamId);
+
+      const [streamData, config] = await Promise.all([
+        contract.getStream(streamKey),
+        contract.getStreamConfig(streamKey).catch(() => null),
+      ]);
+
+      const cadence = Number(streamData.cadenceInSeconds ?? 0);
+      const statusValue = Number(streamData.status ?? 0) as StreamStatus;
+      const startTime = Number(streamData.startTime ?? 0);
+      const lastAccruedAt = Number(streamData.lastAccruedAt ?? 0);
+
+      const numericId = config?.streamId ? config.streamId.toString() : "0";
+      const cancelable = config?.cancelable ?? true;
+      const transferable = config?.transferable ?? true;
+      const hook = config?.hook ?? "0x0000000000000000000000000000000000000000";
+      const bufferedHandle = config?.bufferedHandle ?? "0x0";
+      const withdrawnHandle = config?.withdrawnHandle ?? "0x0";
 
       return {
-        streamId,
+        streamKey,
+        streamId: streamKey,
+        numericId,
         employer: streamData.employer,
         employee: streamData.employee,
         rateHandle: streamData.rateHandle,
-        cadenceInSeconds: Number(streamData.cadenceInSeconds),
-        status: Number(streamData.status) as StreamStatus,
-        startTime: Number(streamData.startTime),
-        lastAccruedAt: Number(streamData.lastAccruedAt),
+        cadenceInSeconds: cadence,
+        status: statusValue,
+        startTime,
+        lastAccruedAt,
+        cancelable,
+        transferable,
+        hook,
+        bufferedHandle,
+        withdrawnHandle,
       };
     } catch (error) {
-      console.error("Error fetching stream:", error);
+      console.error("Error fetching encrypted stream:", error);
       return null;
     }
   }
 
-  /**
-   * Get stream by employer and employee addresses
-   */
-  async getStreamByAddresses(
-    employer: string,
-    employee: string
-  ): Promise<EncryptedStream | null> {
-    const streamId = await this.computeStreamId(employer, employee);
-    return this.getStream(streamId);
+  async getStreamByAddresses(employer: string, employee: string): Promise<EncryptedStream | null> {
+    const streamKey = await this.computeStreamKey(employer, employee);
+    return this.getStream(streamKey);
   }
 
   /**
-   * Get all streams for a given address (as employer or employee)
-   * Note: Since streams use deterministic IDs, we need to query events
+   * Query recent StreamCreated events and return any streams involving the address.
    */
   async getStreamsByAddress(
     address: string,
@@ -159,50 +189,53 @@ export class EncryptedPayrollContract {
   ): Promise<EncryptedStream[]> {
     try {
       const contract = await this.getContract();
-
-      // Get StreamCreated events
       const filter = contract.filters.StreamCreated();
-
-      // Query recent blocks (last 10000 blocks)
       const currentBlock = await contract.runner?.provider?.getBlockNumber();
+
       if (!currentBlock) {
-        console.error("Could not get current block number");
+        console.error("Unable to load current block number");
         return [];
       }
 
-      const fromBlock = Math.max(0, currentBlock - 10000);
-      console.log(`Querying encrypted streams from block ${fromBlock} to ${currentBlock}`);
+      const DEFAULT_LOOKBACK = 200_000;
+      const fromBlock = Math.max(0, currentBlock - DEFAULT_LOOKBACK);
+      let events = await contract.queryFilter(filter, fromBlock, currentBlock);
 
-      const events = await contract.queryFilter(filter, fromBlock, currentBlock);
-      console.log(`Found ${events.length} total StreamCreated events`);
+      if (!events || events.length === 0) {
+        // Fallback to full-history scan if recent lookback misses older streams
+        events = await contract.queryFilter(filter, 0, currentBlock);
+      }
 
+      const lowered = address.toLowerCase();
       const streams: EncryptedStream[] = [];
+      const seen = new Set<string>();
 
       for (const event of events) {
-        // Type guard to check if event has args (EventLog vs Log)
-        if (!('args' in event) || !event.args) continue;
+        if (!("args" in event) || !event.args) continue;
 
-        const streamEmployer = event.args.employer;
-        const streamEmployee = event.args.employee;
-        const streamId = event.args.streamId;
+        const streamEmployer = event.args.employer?.toLowerCase?.() ?? "";
+        const streamEmployee = event.args.employee?.toLowerCase?.() ?? "";
+        const streamKey = event.args.streamKey as string;
 
-        console.log(`Event - Stream ${streamId}: employer=${streamEmployer}, employee=${streamEmployee}`);
+        if (seen.has(streamKey)) {
+          continue;
+        }
 
-        // Filter by address and type
-        if (
-          (type === "employer" && streamEmployer.toLowerCase() === address.toLowerCase()) ||
-          (type === "employee" && streamEmployee.toLowerCase() === address.toLowerCase())
-        ) {
-          console.log(`✓ Matched stream ${streamId} for ${type}`);
+        const matches =
+          (type === "employer" && streamEmployer === lowered) ||
+          (type === "employee" && streamEmployee === lowered);
 
-          const stream = await this.getStream(streamId);
-          if (stream && stream.status !== StreamStatus.None) {
-            streams.push(stream);
-          }
+        if (!matches) {
+          continue;
+        }
+
+        const stream = await this.getStream(streamKey);
+        if (stream && stream.status !== StreamStatus.None) {
+          streams.push(stream);
+          seen.add(streamKey);
         }
       }
 
-      console.log(`Returning ${streams.length} encrypted streams for ${type}`);
       return streams;
     } catch (error) {
       console.error("Error fetching encrypted streams:", error);
@@ -210,65 +243,106 @@ export class EncryptedPayrollContract {
     }
   }
 
-  /**
-   * Pause a stream
-   */
-  async pauseStream(streamId: string): Promise<string> {
+  async pauseStream(streamKey: string): Promise<string> {
     const contract = await this.getContract(true);
-    const tx = await contract.pauseStream(streamId);
-    console.log("Pause transaction sent:", tx.hash);
+    const tx = await contract.pauseStream(streamKey);
     await tx.wait();
     return tx.hash;
   }
 
-  /**
-   * Resume a stream
-   */
-  async resumeStream(streamId: string): Promise<string> {
+  async resumeStream(streamKey: string): Promise<string> {
     const contract = await this.getContract(true);
-    const tx = await contract.resumeStream(streamId);
-    console.log("Resume transaction sent:", tx.hash);
+    const tx = await contract.resumeStream(streamKey);
     await tx.wait();
     return tx.hash;
   }
 
-  /**
-   * Cancel a stream
-   */
-  async cancelStream(streamId: string): Promise<string> {
+  async cancelStream(streamKey: string): Promise<string> {
     const contract = await this.getContract(true);
-    const tx = await contract.cancelStream(streamId);
-    console.log("Cancel transaction sent:", tx.hash);
+    const tx = await contract.cancelStream(streamKey);
     await tx.wait();
     return tx.hash;
   }
 
-  /**
-   * Top up a stream with encrypted amount
-   */
-  async topUp(
-    streamId: string,
-    encryptedAmount: string,
-    amountProof: string
-  ): Promise<string> {
+  async withdrawMax(streamKey: string, to: string): Promise<string> {
     const contract = await this.getContract(true);
-    const tx = await contract.topUp(streamId, encryptedAmount, amountProof);
-    console.log("Top-up transaction sent:", tx.hash);
+    const tx = await contract.withdrawMax(streamKey, to);
     await tx.wait();
     return tx.hash;
   }
 
-  /**
-   * Sync a stream to update accrued balance
-   */
-  async syncStream(streamId: string): Promise<string> {
+  async topUp(streamKey: string, encryptedAmount: string, amountProof: string): Promise<string> {
     const contract = await this.getContract(true);
-    const tx = await contract.syncStream(streamId);
-    console.log("Sync transaction sent:", tx.hash);
+    const tx = await contract.topUp(streamKey, encryptedAmount, amountProof);
+    await tx.wait();
+    return tx.hash;
+  }
+
+  async syncStream(streamKey: string): Promise<string> {
+    const contract = await this.getContract(true);
+    const tx = await contract.syncStream(streamKey);
+    await tx.wait();
+    return tx.hash;
+  }
+
+  async configureStream(streamKey: string, cancelable: boolean, transferable: boolean): Promise<string> {
+    const contract = await this.getContract(true);
+    const tx = await contract.configureStream(streamKey, cancelable, transferable);
+    await tx.wait();
+    return tx.hash;
+  }
+
+  async setStreamHook(streamKey: string, hook: string): Promise<string> {
+    const contract = await this.getContract(true);
+    const tx = await contract.setStreamHook(streamKey, hook);
+    await tx.wait();
+    return tx.hash;
+  }
+
+  async allowHook(hook: string, allowed: boolean): Promise<string> {
+    const contract = await this.getContract(true);
+    const tx = await contract.allowHook(hook, allowed);
+    await tx.wait();
+    return tx.hash;
+  }
+
+  async encryptedBalanceOf(streamKey: string): Promise<string> {
+    const contract = await this.getContract(true);
+    const handle: string = await contract.encryptedBalanceOf.staticCall(streamKey);
+    await contract.encryptedBalanceOf(streamKey);
+    return handle;
+  }
+
+  async getStreamConfig(streamKey: string) {
+    const contract = await this.getContract();
+    const config = await contract.getStreamConfig(streamKey);
+    return {
+      streamId: config.streamId.toString(),
+      cancelable: config.cancelable as boolean,
+      transferable: config.transferable as boolean,
+      hook: config.hook as string,
+      bufferedHandle: config.bufferedHandle as string,
+      withdrawnHandle: config.withdrawnHandle as string,
+    };
+  }
+
+  async streamIdFor(streamKey: string): Promise<string> {
+    const contract = await this.getContract();
+    const id = await contract.streamIdFor(streamKey);
+    return id.toString();
+  }
+
+  async streamKeyFor(streamId: string | number | bigint): Promise<string> {
+    const contract = await this.getContract();
+    return await contract.streamKeyFor(streamId);
+  }
+
+  async transferAdmin(newAdmin: string): Promise<string> {
+    const contract = await this.getContract(true);
+    const tx = await contract.transferAdmin(newAdmin);
     await tx.wait();
     return tx.hash;
   }
 }
 
-// Singleton instance
 export const encryptedPayrollContract = new EncryptedPayrollContract();
