@@ -16,6 +16,7 @@
     "@wagmi/core": "^2.6.2",
     "@zama-fhe/relayer-sdk": "^0.2.0",
     "ethers": "^6.15.0",
+    "fhevm-ts-sdk": "^0.1.1",
     "next": "15.5.6",
     "react": "19.2.0",
     "react-dom": "19.2.0",

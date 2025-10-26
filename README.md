@@ -170,7 +170,7 @@ Remember to configure `SEPOLIA_RPC_URL`, `DEPLOYER_KEY`, and `ETHERSCAN_API_KEY`
 
 ### Contract Tests
 
-**EncryptedPayroll.sol** (34 tests)
+**EncryptedPayroll.sol** (35+ tests)
 
 - Stream creation and lifecycle
 - Balance accrual over time
@@ -178,9 +178,10 @@ Remember to configure `SEPOLIA_RPC_URL`, `DEPLOYER_KEY`, and `ETHERSCAN_API_KEY`
 - Pause/resume operations
 - Balance tracking and queries
 - Stream cancellation
+- Encrypted balance handle refresh after sync
 - Edge cases (small/large rates, multiple streams)
 
-**IncomeOracle.sol** (29 tests)
+**IncomeOracle.sol** (30 tests)
 
 - Basic attestation flow
 - Tier calculations (A/B/C/None)
@@ -191,13 +192,42 @@ Remember to configure `SEPOLIA_RPC_URL`, `DEPLOYER_KEY`, and `ETHERSCAN_API_KEY`
 - Integration with payroll contract
 - Gas optimization
 
-### Web Tests (13 Playwright tests)
+### Web Tests (14 Playwright tests)
 
 - Employer flow: wallet connection, stream creation, encryption preview
 - Employee flow: stream list, decryption, proof generation
+- Stream detail view: wallet gating for decrypt actions
 - Verifier flow: attestation form, threshold encryption, tier decryption
 
-**Note**: E2E tests currently skipped pending wallet/fhEVM mocking setup
+**Note**: Wallet-connected paths are planned once fhEVM/wagmi mocking is in place
+
+## 📐 Decryption Math
+
+When the frontend calls `instance.userDecrypt` it submits up to four handles bound to the payroll contract address:
+
+| Handle | Symbol | Meaning | Decrypted Value |
+|--------|--------|---------|-----------------|
+| `stream.rateHandle` | `r` | Encrypted rate per second | `r` (wei/s) |
+| `stream.bufferedHandle` | `B` | Accrued but still buffered amount | `B` (wei) |
+| `stream.withdrawnHandle` | `W` | Total withdrawn so far | `W` (wei) |
+| `balanceHandle` (from `encryptedBalanceOf`) | `A` | Withdrawable balance | `A` (wei) |
+
+The fhEVM contracts guarantee the invariant `A = (S + B) − W`, where `S` represents the encrypted accrual that is neither buffered nor withdrawn. Rearranging gives the core identity the UI uses after decryption:
+
+```
+streamed = A + W − B
+```
+
+With these cleartext numbers the app derives all user-facing values:
+
+- Monthly rate: `rate_per_month = r × 30 × 24 × 60 × 60`
+- Streamed total: `streamed = A + W − B` (fallback `max(W − B, 0)` if `A` is missing)
+- Buffered balance: `buffered = B`
+- Withdrawn total: `withdrawn = W`
+- Available to withdraw: `available = A`
+- Outstanding debt: `debt = max(W − streamed − B, 0)`
+
+The handle array therefore fully determines the visible payroll metrics once decrypted, while the ciphertexts remain private on-chain.
 
 ## 🛠️ Technology Stack
 

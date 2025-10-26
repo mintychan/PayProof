@@ -1,7 +1,7 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { useFhevm } from "../providers/FhevmProvider";
+import { useFhevm } from "fhevm-ts-sdk/react";
 
 interface PayslipDataParams {
   employeeAddress: string | undefined;

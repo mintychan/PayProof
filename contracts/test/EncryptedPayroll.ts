@@ -26,6 +26,102 @@ async function deployFixture(): Promise<{ payroll: EncryptedPayroll; payrollAddr
   return { payroll, payrollAddress };
 }
 
+describe("EncryptedPayroll - Basic Tests (No FHE Required)", function () {
+  let payroll: EncryptedPayroll;
+  let owner: HardhatEthersSigner;
+  let employer: HardhatEthersSigner;
+  let employee: HardhatEthersSigner;
+  let other: HardhatEthersSigner;
+
+  beforeEach(async function () {
+    [owner, employer, employee, other] = await ethers.getSigners();
+    
+    const EncryptedPayroll = await ethers.getContractFactory("EncryptedPayroll") as EncryptedPayroll__factory;
+    payroll = await EncryptedPayroll.deploy() as EncryptedPayroll;
+    await payroll.waitForDeployment();
+  });
+
+  describe("Deployment", function () {
+    it("Should set the right admin", async function () {
+      expect(await payroll.admin()).to.equal(owner.address);
+    });
+
+    it("Should have correct protocol ID", async function () {
+      const protocolId = await payroll.protocolId();
+      expect(protocolId).to.equal(10001n); // Protocol ID is hardcoded to 10001
+    });
+  });
+
+  describe("Stream ID Computation", function () {
+    it("Should compute deterministic stream IDs", async function () {
+      const streamId1 = await payroll.computeStreamId(employer.address, employee.address);
+      const streamId2 = await payroll.computeStreamId(employer.address, employee.address);
+      expect(streamId1).to.equal(streamId2);
+    });
+
+    it("Should compute different IDs for different pairs", async function () {
+      const streamId1 = await payroll.computeStreamId(employer.address, employee.address);
+      const streamId2 = await payroll.computeStreamId(employer.address, other.address);
+      expect(streamId1).to.not.equal(streamId2);
+    });
+  });
+
+  describe("Stream Creation Error Handling", function () {
+    it("Should revert with InvalidEmployee for zero address", async function () {
+      const zeroAddress = ethers.ZeroAddress;
+      
+      // Create dummy encrypted values (these won't work with real FHE but test the flow)
+      const dummyHandle = "0x" + "00".repeat(32);
+      const dummyProof = "0x" + "00".repeat(100);
+      
+      await expect(
+        payroll.connect(employer).createStream(
+          zeroAddress,
+          dummyHandle,
+          dummyProof,
+          30 * 24 * 60 * 60, // 30 days
+          0
+        )
+      ).to.be.revertedWithCustomError(payroll, "InvalidEmployee");
+    });
+  });
+
+  describe("Admin Functions", function () {
+    it("Should allow admin to set hook allowlist", async function () {
+      const hookAddress = other.address;
+      
+      await expect(payroll.allowHook(hookAddress, true))
+        .to.emit(payroll, "HookAllowed")
+        .withArgs(hookAddress, true);
+      
+      await expect(payroll.allowHook(hookAddress, false))
+        .to.emit(payroll, "HookAllowed")
+        .withArgs(hookAddress, false);
+    });
+
+    it("Should only allow admin to set hook allowlist", async function () {
+      const hookAddress = other.address;
+      
+      await expect(
+        payroll.connect(employer).allowHook(hookAddress, true)
+      ).to.be.revertedWithCustomError(payroll, "NotAuthorized");
+    });
+
+    it("Should transfer admin", async function () {
+      await expect(payroll.transferAdmin(employer.address))
+        .to.emit(payroll, "AdminTransferred")
+        .withArgs(owner.address, employer.address);
+      expect(await payroll.admin()).to.equal(employer.address);
+    });
+
+    it("Should only allow current admin to transfer", async function () {
+      await expect(
+        payroll.connect(employer).transferAdmin(other.address)
+      ).to.be.revertedWithCustomError(payroll, "NotAuthorized");
+    });
+  });
+});
+
 describe("EncryptedPayroll (fhEVM) - Comprehensive Tests", function () {
   let signers: Signers;
   let payroll: EncryptedPayroll;
@@ -654,6 +750,59 @@ describe("EncryptedPayroll (fhEVM) - Comprehensive Tests", function () {
       const { streamKey: streamKeyEmployee } = await createStreamWithRate(15);
       const rate = await decryptRate(streamKeyEmployee, signers.employee);
       expect(Number(rate)).to.equal(15);
+    });
+  });
+
+  describe("Encrypted balance handles", function () {
+    it("provides fresh decryptable handles after syncing accrued balances", async function () {
+      const { streamKey } = await createStreamWithRate(11);
+
+      await ethers.provider.send("evm_increaseTime", [600]);
+      await ethers.provider.send("evm_mine", []);
+      await payroll.connect(signers.employer).syncStream(streamKey);
+
+      const initialHandle = await payroll
+        .connect(signers.employee)
+        .encryptedBalanceOf
+        .staticCall(streamKey);
+      const initialTx = await payroll
+        .connect(signers.employee)
+        .encryptedBalanceOf(streamKey);
+      await initialTx.wait();
+
+      const initialDecrypted = await fhevm.userDecryptEuint(
+        FhevmType.euint128,
+        initialHandle,
+        payrollAddress,
+        signers.employee,
+      );
+
+      expect(initialHandle).to.be.a("string").and.to.match(/^0x[0-9a-f]+$/i);
+      expect(Number(initialDecrypted)).to.be.greaterThan(0);
+
+      await ethers.provider.send("evm_increaseTime", [600]);
+      await ethers.provider.send("evm_mine", []);
+      await payroll.connect(signers.employer).syncStream(streamKey);
+
+      const refreshedHandle = await payroll
+        .connect(signers.employee)
+        .encryptedBalanceOf
+        .staticCall(streamKey);
+      const refreshedTx = await payroll
+        .connect(signers.employee)
+        .encryptedBalanceOf(streamKey);
+      await refreshedTx.wait();
+
+      const refreshedDecrypted = await fhevm.userDecryptEuint(
+        FhevmType.euint128,
+        refreshedHandle,
+        payrollAddress,
+        signers.employee,
+      );
+
+      expect(refreshedHandle).to.be.a("string").and.to.match(/^0x[0-9a-f]+$/i);
+      expect(refreshedHandle).to.not.equal(initialHandle);
+      expect(Number(refreshedDecrypted)).to.be.greaterThan(Number(initialDecrypted));
     });
   });
 

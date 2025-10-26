@@ -25,6 +25,9 @@ importers:
       ethers:
         specifier: ^6.15.0
         version: 6.15.0(bufferutil@4.0.9)(utf-8-validate@5.0.10)
+      fhevm-ts-sdk:
+        specifier: ^0.1.1
+        version: 0.1.1(9001f19ed682f37558daab55645edb90)
       next:
         specifier: 15.5.6
         version: 15.5.6(@babel/core@7.28.4)(@playwright/test@1.56.1)(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
@@ -2843,6 +2846,18 @@ packages:
   fetch-retry@6.0.0:
     resolution: {integrity: sha512-BUFj1aMubgib37I3v4q78fYo63Po7t4HUPTpQ6/QE6yK6cIQrP+W43FYToeTEyg5m2Y7eFUtijUuAv/PDlWuag==}
 
+  fhevm-ts-sdk@0.1.1:
+    resolution: {integrity: sha512-ZdcQancPiha62WA71zDOSY9a2OlpxedBIXo4N1RYsgc0LMAsBSvPI5mM1NKUsoXG6Ckruzi0H272jSNmQGX0jg==}
+    peerDependencies:
+      '@fhevm/mock-utils': ^0.1.0
+      '@wagmi/core': ^2.16.0
+      '@zama-fhe/relayer-sdk': ^0.2.0
+      ethers: ^6.13.4
+      hardhat: ^2.20.0
+      react: ^18.0.0 || ^19.0.0
+      viem: ^2.34.0
+      wagmi: ^2.16.0
+
   file-entry-cache@6.0.1:
     resolution: {integrity: sha512-7Gps/XWymbLk2QLYK4NzpMOrYjMhdIxXuIvy2QBsLE6ljuodKvdkWs/cpyJJ3CVIVpH0Oi1Hvg1ovbMzLdFBBg==}
     engines: {node: ^10.12.0 || >=12.0.0}
@@ -3181,6 +3196,9 @@ packages:
 
   idb-keyval@6.2.2:
     resolution: {integrity: sha512-yjD9nARJ/jb1g+CvD0tlhUHOrJ9Sy0P8T9MF3YaLlHnSRpwPfpTX0XIvpmw3gAJUmEu3FiICLBDPXVwyEvrleg==}
+
+  idb@8.0.3:
+    resolution: {integrity: sha512-LtwtVyVYO5BqRvcsKuB2iUMnHwPVByPCXFXOpuU96IZPPoPN6xjOGxZQ74pgSVVLQWtUOYgyeL4GE98BY5D3wg==}
 
   ieee754@1.2.1:
     resolution: {integrity: sha512-dcyqhDvX1C46lXZcVqCpK+FtMRQVdIMN6/Df5js2zouUsqG7I6sFxitIC+7KYK29KdXOLHdu9zL4sFnoVQnqaA==}
@@ -9575,6 +9593,19 @@ snapshots:
 
   fetch-retry@6.0.0: {}
 
+  fhevm-ts-sdk@0.1.1(9001f19ed682f37558daab55645edb90):
+    dependencies:
+      '@fhevm/mock-utils': 0.1.0(@zama-fhe/relayer-sdk@0.2.0(bufferutil@4.0.9)(utf-8-validate@5.0.10))(ethers@6.15.0(bufferutil@4.0.9)(utf-8-validate@5.0.10))(typescript@5.4.5)
+      '@tanstack/react-query': 5.90.5(react@19.2.0)
+      '@wagmi/core': 2.22.1(@tanstack/query-core@5.90.5)(@types/react@18.2.74)(react@19.2.0)(typescript@5.4.5)(use-sync-external-store@1.4.0(react@19.2.0))(viem@2.38.3(bufferutil@4.0.9)(typescript@5.4.5)(utf-8-validate@5.0.10)(zod@3.25.76))
+      '@zama-fhe/relayer-sdk': 0.2.0(bufferutil@4.0.9)(utf-8-validate@5.0.10)
+      ethers: 6.15.0(bufferutil@4.0.9)(utf-8-validate@5.0.10)
+      hardhat: 2.26.3(bufferutil@4.0.9)(ts-node@10.9.2(@types/node@20.14.9)(typescript@5.4.5))(typescript@5.4.5)(utf-8-validate@5.0.10)
+      idb: 8.0.3
+      react: 19.2.0
+      viem: 2.38.3(bufferutil@4.0.9)(typescript@5.4.5)(utf-8-validate@5.0.10)(zod@3.25.76)
+      wagmi: 2.18.1(@react-native-async-storage/async-storage@2.2.0(react-native@0.82.0(@babel/core@7.28.4)(@types/react@18.2.74)(bufferutil@4.0.9)(react@19.2.0)(utf-8-validate@5.0.10)))(@tanstack/query-core@5.90.5)(@tanstack/react-query@5.90.5(react@19.2.0))(@types/react@18.2.74)(bufferutil@4.0.9)(react@19.2.0)(typescript@5.4.5)(utf-8-validate@5.0.10)(viem@2.38.3(bufferutil@4.0.9)(typescript@5.4.5)(utf-8-validate@5.0.10)(zod@3.25.76))(zod@3.25.76)
+
   file-entry-cache@6.0.1:
     dependencies:
       flat-cache: 3.2.0
@@ -9924,6 +9955,55 @@ snapshots:
       - utf-8-validate
       - zod
 
+  hardhat@2.26.3(bufferutil@4.0.9)(ts-node@10.9.2(@types/node@20.14.9)(typescript@5.4.5))(typescript@5.4.5)(utf-8-validate@5.0.10):
+    dependencies:
+      '@ethereumjs/util': 9.1.0
+      '@ethersproject/abi': 5.8.0
+      '@nomicfoundation/edr': 0.11.3
+      '@nomicfoundation/solidity-analyzer': 0.1.2
+      '@sentry/node': 5.30.0
+      adm-zip: 0.4.16
+      aggregate-error: 3.1.0
+      ansi-escapes: 4.3.2
+      boxen: 5.1.2
+      chokidar: 4.0.3
+      ci-info: 2.0.0
+      debug: 4.4.3(supports-color@8.1.1)
+      enquirer: 2.4.1
+      env-paths: 2.2.1
+      ethereum-cryptography: 1.2.0
+      find-up: 5.0.0
+      fp-ts: 1.19.3
+      fs-extra: 7.0.1
+      immutable: 4.3.7
+      io-ts: 1.10.4
+      json-stream-stringify: 3.1.6
+      keccak: 3.0.4
+      lodash: 4.17.21
+      micro-eth-signer: 0.14.0
+      mnemonist: 0.38.5
+      mocha: 10.8.2
+      p-map: 4.0.0
+      picocolors: 1.1.1
+      raw-body: 2.5.2
+      resolve: 1.17.0
+      semver: 6.3.1
+      solc: 0.8.26(debug@4.4.3)
+      source-map-support: 0.5.21
+      stacktrace-parser: 0.1.11
+      tinyglobby: 0.2.15
+      tsort: 0.0.1
+      undici: 5.29.0
+      uuid: 8.3.2
+      ws: 7.5.10(bufferutil@4.0.9)(utf-8-validate@5.0.10)
+    optionalDependencies:
+      ts-node: 10.9.2(@types/node@20.14.9)(typescript@5.4.5)
+      typescript: 5.4.5
+    transitivePeerDependencies:
+      - bufferutil
+      - supports-color
+      - utf-8-validate
+
   hardhat@2.26.3(bufferutil@4.0.9)(ts-node@10.9.2(@types/node@20.19.22)(typescript@5.4.5))(typescript@5.4.5)(utf-8-validate@5.0.10):
     dependencies:
       '@ethereumjs/util': 9.1.0
@@ -10062,6 +10142,8 @@ snapshots:
   idb-keyval@6.2.1: {}
 
   idb-keyval@6.2.2: {}
+
+  idb@8.0.3: {}
 
   ieee754@1.2.1: {}
 
@@ -11098,7 +11180,7 @@ snapshots:
       '@noble/hashes': 1.8.0
       '@scure/bip32': 1.7.0
       '@scure/bip39': 1.6.0
-      abitype: 1.1.0(typescript@5.4.5)(zod@3.22.4)
+      abitype: 1.1.0(typescript@5.4.5)(zod@3.25.76)
       eventemitter3: 5.0.1
     optionalDependencies:
       typescript: 5.4.5
@@ -12171,6 +12253,25 @@ snapshots:
 
   ts-interface-checker@0.1.13: {}
 
+  ts-node@10.9.2(@types/node@20.14.9)(typescript@5.4.5):
+    dependencies:
+      '@cspotcode/source-map-support': 0.8.1
+      '@tsconfig/node10': 1.0.11
+      '@tsconfig/node12': 1.0.11
+      '@tsconfig/node14': 1.0.3
+      '@tsconfig/node16': 1.0.4
+      '@types/node': 20.14.9
+      acorn: 8.15.0
+      acorn-walk: 8.3.4
+      arg: 4.1.3
+      create-require: 1.1.1
+      diff: 4.0.2
+      make-error: 1.3.6
+      typescript: 5.4.5
+      v8-compile-cache-lib: 3.0.1
+      yn: 3.1.1
+    optional: true
+
   ts-node@10.9.2(@types/node@20.19.22)(typescript@5.4.5):
     dependencies:
       '@cspotcode/source-map-support': 0.8.1
@@ -12426,7 +12527,7 @@ snapshots:
       '@noble/hashes': 1.8.0
       '@scure/bip32': 1.7.0
       '@scure/bip39': 1.6.0
-      abitype: 1.1.0(typescript@5.4.5)(zod@3.22.4)
+      abitype: 1.1.0(typescript@5.4.5)(zod@3.25.76)
       isows: 1.0.7(ws@8.18.3(bufferutil@4.0.9)(utf-8-validate@5.0.10))
       ox: 0.9.6(typescript@5.4.5)
       ws: 8.18.3(bufferutil@4.0.9)(utf-8-validate@5.0.10)

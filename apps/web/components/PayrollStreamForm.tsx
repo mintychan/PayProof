@@ -2,10 +2,11 @@
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useAccount } from "wagmi";
+import { useFhevmContext } from "fhevm-ts-sdk/react";
 import CipherBadge from "./CipherBadge";
-import { useFhevm } from "../providers/FhevmProvider";
 import { encryptedPayrollContract, CreateStreamResult } from "../lib/contracts/encryptedPayrollContract";
 import { parseEther } from "ethers";
+import { storeStream } from "../lib/storage/streamStorage";
 
 const CADENCE_OPTIONS = [
   { label: "Monthly", seconds: 30 * 24 * 60 * 60 },
@@ -14,8 +15,8 @@ const CADENCE_OPTIONS = [
 ];
 
 export default function PayrollStreamForm() {
-  const { address: connectedAddress } = useAccount();
-  const { encryptNumber, ready, initializing, error: fheError } = useFhevm();
+  const { address: connectedAddress, chain } = useAccount();
+  const { status: fhevmStatus, error: fhevmError, instance } = useFhevmContext();
   const [employeeAddress, setEmployeeAddress] = useState<string>("");
   const [rate, setRate] = useState<string>("");
   const [cadence, setCadence] = useState<number>(CADENCE_OPTIONS[0].seconds);
@@ -27,9 +28,18 @@ export default function PayrollStreamForm() {
   // Auto-populate employer address from connected wallet
   const employerAddress = connectedAddress || "";
 
+  // Check if on correct network
+  const isCorrectNetwork = chain?.id === 11155111;
+  const networkError = !isCorrectNetwork && employerAddress ? "Please switch MetaMask to Sepolia testnet (Chain ID: 11155111)" : null;
+
+  // Check if fhEVM is ready
+  const ready = fhevmStatus === 'ready' || fhevmStatus === 'sdk-initialized';
+  const initializing = fhevmStatus === 'loading';
+  const fheError = fhevmError?.message;
+
   const encryptionReady = useMemo(() => {
-    return ready && Boolean(employerAddress && employeeAddress && rate && Number(rate) > 0);
-  }, [ready, employerAddress, employeeAddress, rate]);
+    return ready && isCorrectNetwork && Boolean(employerAddress && employeeAddress && rate && Number(rate) > 0);
+  }, [ready, isCorrectNetwork, employerAddress, employeeAddress, rate]);
 
   const payrollContract = process.env.NEXT_PUBLIC_PAYPROOF_PAYROLL_CONTRACT?.trim() || "0xaAaAaAaaAaAaAaaAaAAAAAAAAaaaAaAaAaaAaaAa";
 
@@ -54,18 +64,56 @@ export default function PayrollStreamForm() {
     await new Promise(resolve => setTimeout(resolve, 0));
 
     try {
+      // Check network using wagmi's chain from useAccount (more reliable than window.ethereum)
+      const currentChainId = chain?.id;
+      console.log("Connected to chain:", currentChainId);
+      if (currentChainId !== 11155111) {
+        throw new Error(`Wrong network! Please connect to Sepolia testnet (Chain ID: 11155111). Currently on Chain ID: ${currentChainId}`);
+      }
+
+      console.log("Contract address being used:", payrollContract);
+      console.log("Employer:", employerAddress);
+      console.log("Employee:", employeeAddress);
+
       // Convert rate per month to rate per second in wei
       const ratePerMonth = parseEther(rate);
       const ratePerSecond = ratePerMonth / BigInt(30 * 24 * 60 * 60);
 
-      console.log("Encrypting rate per second:", ratePerSecond.toString());
+      console.log("Rate per month (wei):", ratePerMonth.toString());
+      console.log("Rate per second (wei):", ratePerSecond.toString());
+      
+      // Ensure rate is not 0
+      if (ratePerSecond === 0n) {
+        throw new Error("Rate per second is 0. Please use a higher monthly rate (minimum ~0.0026 ETH/month for 1 wei/second)");
+      }
 
-      // Encrypt the rate per second
-      const encrypted = await encryptNumber({
-        value: ratePerSecond,
-        bitSize: 64,
-        contractAddress: payrollContract,
-        userAddress: employerAddress
+      if (!instance) {
+        throw new Error("fhEVM instance not initialized");
+      }
+
+      // Helper to 0x-hex encode bytes
+      const toHex = (data: string | Uint8Array): string => {
+        if (typeof data === "string") {
+          return data.startsWith("0x") ? data : `0x${data}`;
+        }
+        return `0x${Array.from(data).map(b => b.toString(16).padStart(2, "0")).join("")}`;
+      };
+
+      // Encrypt the rate per second using the new SDK
+      const input = instance.createEncryptedInput(payrollContract, employerAddress);
+      input.add64(ratePerSecond);
+      const encryptionResult = await input.encrypt();
+
+      const encrypted = {
+        handle: toHex(encryptionResult.handles[0]),
+        proof: toHex(encryptionResult.inputProof),
+        summary: `Encrypted 64-bit payload for ${payrollContract.slice(0, 10)}…`,
+      };
+
+      console.log("Encryption result:", {
+        handle: encrypted.handle,
+        proofLength: (encryptionResult.inputProof as any)?.length ?? (encrypted.proof?.length ?? 0),
+        summary: encrypted.summary
       });
 
       setEncryptionPreview(encrypted);
@@ -75,7 +123,13 @@ export default function PayrollStreamForm() {
       await new Promise(resolve => setTimeout(resolve, 0));
 
       // Create the encrypted stream on-chain
-      console.log("Creating encrypted stream...");
+      console.log("Creating encrypted stream with params:", {
+        employee: employeeAddress,
+        encryptedRatePerSecond: encrypted.handle,
+        proofLength: encrypted.proof.length,
+        cadenceInSeconds: cadence,
+      });
+
       const creation = await encryptedPayrollContract.createStream(
         employerAddress,
         {
@@ -83,8 +137,16 @@ export default function PayrollStreamForm() {
           encryptedRatePerSecond: encrypted.handle,
           rateProof: encrypted.proof,
           cadenceInSeconds: cadence,
-          startTime: 0, // Start immediately
+          startTime: Math.floor(Date.now() / 1000),
         }
+      );
+
+      // Store the streamKey for later retrieval
+      storeStream(
+        creation.streamKey,
+        employerAddress,
+        employeeAddress,
+        creation.transactionHash
       );
 
       setResult({
@@ -188,6 +250,11 @@ export default function PayrollStreamForm() {
           ? "Creating stream on-chain…"
           : "Encrypt & Create Stream"}
       </button>
+      {networkError ? (
+        <p className="rounded-2xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-xs text-amber-200">
+          ⚠️ {networkError}
+        </p>
+      ) : null}
       {formError ? (
         <p className="rounded-2xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-xs text-red-200">
           {formError}

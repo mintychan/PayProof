@@ -1,5 +1,6 @@
 import { BrowserProvider, Contract } from "ethers";
 import { ENCRYPTED_PAYROLL_ABI } from "./EncryptedPayrollABI";
+import { getStreamKeysForAddress } from "../storage/streamStorage";
 
 const CONTRACT_ADDRESS = process.env.NEXT_PUBLIC_PAYPROOF_PAYROLL_CONTRACT || "";
 
@@ -90,12 +91,60 @@ export class EncryptedPayrollContract {
   ): Promise<CreateStreamResult> {
     const contract = await this.getContract(true);
 
+    // Try to estimate gas to see if the transaction would fail
+    try {
+      console.log("Calling createStream with params:", {
+        employee: params.employee,
+        encryptedRatePerSecond: params.encryptedRatePerSecond,
+        rateProof: params.rateProof?.substring(0, 100) + "...",
+        cadenceInSeconds: params.cadenceInSeconds,
+        startTime: params.startTime || 0
+      });
+      
+      const gasEstimate = await contract.createStream.estimateGas(
+        params.employee,
+        params.encryptedRatePerSecond,
+        params.rateProof,
+        params.cadenceInSeconds,
+        params.startTime || 0
+      );
+      console.log("Estimated gas:", gasEstimate.toString());
+    } catch (estimateError: any) {
+      console.error("Gas estimation failed:", estimateError);
+
+      // Try to decode custom error
+      let decoded = null as null | { name: string; args: any[] };
+      try {
+        const data = estimateError?.data || estimateError?.error?.data || estimateError?.info?.error?.data;
+        if (data) {
+          const parsed = (contract.interface as any).parseError(data);
+          if (parsed) decoded = { name: parsed.name, args: parsed.args };
+        }
+      } catch {}
+
+      const friendlyMap: Record<string, string> = {
+        InvalidEmployee: "Invalid employee address.",
+        InvalidRate: "Invalid rate: must be > 0 and within allowed bounds.",
+        StreamAlreadyExists: "A stream already exists for this employer/employee pair.",
+        HookNotAllowlisted: "The configured hook is not allowlisted.",
+      };
+
+      const errorMessage = decoded
+        ? `${decoded.name}${friendlyMap[decoded.name] ? ` - ${friendlyMap[decoded.name]}` : ""}`
+        : (estimateError?.reason || estimateError?.message || estimateError?.data?.message || "Unknown error during gas estimation");
+
+      throw new Error(`Transaction will fail: ${errorMessage}`);
+    }
+
     const tx = await contract.createStream(
       params.employee,
       params.encryptedRatePerSecond,
       params.rateProof,
       params.cadenceInSeconds,
-      params.startTime || 0
+      params.startTime || 0,
+      {
+        gasLimit: 5000000, // Set a high gas limit for FHE operations
+      }
     );
 
     const receipt = await tx.wait();
@@ -104,17 +153,44 @@ export class EncryptedPayrollContract {
       throw new Error("Transaction receipt unavailable");
     }
 
+    console.log("Transaction receipt status:", receipt.status);
+    console.log("Transaction receipt:", receipt);
+    console.log("Receipt logs:", receipt.logs);
+    console.log("Receipt logs length:", receipt.logs.length);
+
+    // Check transaction status
+    if (receipt.status === 0) {
+      console.error("Transaction failed. Receipt:", receipt);
+      throw new Error("Transaction reverted. Check console for details.");
+    }
+
+    if (!receipt.logs || receipt.logs.length === 0) {
+      console.error("Transaction succeeded but has no logs. This might indicate:");
+      console.error("1. Function executed but didn't emit events");
+      console.error("2. Gas was insufficient to emit events");
+      console.error("3. Contract logic issue");
+      console.error("Full receipt:", JSON.stringify(receipt, null, 2));
+    }
+
     const eventLog = receipt.logs.find((log: any) => {
       try {
         const parsed = contract.interface.parseLog(log);
+        console.log("Parsed log:", parsed);
         return parsed?.name === "StreamCreated";
-      } catch {
+      } catch (e) {
+        console.log("Failed to parse log:", log, e);
         return false;
       }
     });
 
     if (!eventLog) {
-      throw new Error("StreamCreated event not found in receipt");
+      console.error("StreamCreated event not found in receipt. All logs:", receipt.logs);
+      const etherscanUrl = `https://sepolia.etherscan.io/tx/${tx.hash}`;
+      throw new Error(
+        `StreamCreated event not found in receipt. The transaction was mined but didn't emit the expected event. ` +
+        `This usually means the FHE proof validation failed. ` +
+        `View transaction: ${etherscanUrl}`
+      );
     }
 
     const parsedEvent = contract.interface.parseLog(eventLog);
@@ -182,11 +258,16 @@ export class EncryptedPayrollContract {
 
   /**
    * Query recent StreamCreated events and return any streams involving the address.
+   * Falls back to stored streamKeys from localStorage for older streams.
    */
   async getStreamsByAddress(
     address: string,
     type: "employer" | "employee"
   ): Promise<EncryptedStream[]> {
+    const lowered = address.toLowerCase();
+    const streams: EncryptedStream[] = [];
+    const seen = new Set<string>();
+
     try {
       const contract = await this.getContract();
       const filter = contract.filters.StreamCreated();
@@ -194,53 +275,72 @@ export class EncryptedPayrollContract {
 
       if (!currentBlock) {
         console.error("Unable to load current block number");
-        return [];
-      }
+      } else {
+        const DEFAULT_LOOKBACK = 10_000; // Reduced to fit within Alchemy's free tier limit (10k max)
+        const fromBlock = Math.max(0, currentBlock - DEFAULT_LOOKBACK);
+        const events = await contract.queryFilter(filter, fromBlock, currentBlock);
 
-      const DEFAULT_LOOKBACK = 200_000;
-      const fromBlock = Math.max(0, currentBlock - DEFAULT_LOOKBACK);
-      let events = await contract.queryFilter(filter, fromBlock, currentBlock);
+        // Note: No fallback to full history scan to avoid exceeding block range limits
+        // For older streams, use the stored streamKeys from localStorage
 
-      if (!events || events.length === 0) {
-        // Fallback to full-history scan if recent lookback misses older streams
-        events = await contract.queryFilter(filter, 0, currentBlock);
-      }
+        for (const event of events) {
+          if (!("args" in event) || !event.args) continue;
 
-      const lowered = address.toLowerCase();
-      const streams: EncryptedStream[] = [];
-      const seen = new Set<string>();
+          const streamEmployer = event.args.employer?.toLowerCase?.() ?? "";
+          const streamEmployee = event.args.employee?.toLowerCase?.() ?? "";
+          const streamKey = event.args.streamKey as string;
 
-      for (const event of events) {
-        if (!("args" in event) || !event.args) continue;
+          if (seen.has(streamKey)) {
+            continue;
+          }
 
-        const streamEmployer = event.args.employer?.toLowerCase?.() ?? "";
-        const streamEmployee = event.args.employee?.toLowerCase?.() ?? "";
-        const streamKey = event.args.streamKey as string;
+          const matches =
+            (type === "employer" && streamEmployer === lowered) ||
+            (type === "employee" && streamEmployee === lowered);
 
-        if (seen.has(streamKey)) {
-          continue;
+          if (!matches) {
+            continue;
+          }
+
+          const stream = await this.getStream(streamKey);
+          if (stream && stream.status !== StreamStatus.None) {
+            streams.push(stream);
+            seen.add(streamKey);
+          }
         }
+      }
+    } catch (error) {
+      console.error("Error fetching encrypted streams from events:", error);
+    }
 
-        const matches =
-          (type === "employer" && streamEmployer === lowered) ||
-          (type === "employee" && streamEmployee === lowered);
+    // Fallback: Load streamKeys from localStorage
+    try {
+      const storedKeys = getStreamKeysForAddress(address);
+      console.log(`Found ${storedKeys.length} stored stream keys for ${address}`);
 
-        if (!matches) {
-          continue;
+      for (const streamKey of storedKeys) {
+        if (seen.has(streamKey)) {
+          continue; // Already loaded from events
         }
 
         const stream = await this.getStream(streamKey);
         if (stream && stream.status !== StreamStatus.None) {
-          streams.push(stream);
-          seen.add(streamKey);
+          // Verify this stream matches the requested type
+          const matches =
+            (type === "employer" && stream.employer.toLowerCase() === lowered) ||
+            (type === "employee" && stream.employee.toLowerCase() === lowered);
+
+          if (matches) {
+            streams.push(stream);
+            seen.add(streamKey);
+          }
         }
       }
-
-      return streams;
-    } catch (error) {
-      console.error("Error fetching encrypted streams:", error);
-      return [];
+    } catch (storageError) {
+      console.error("Error loading streams from storage:", storageError);
     }
+
+    return streams;
   }
 
   async pauseStream(streamKey: string): Promise<string> {
@@ -309,8 +409,20 @@ export class EncryptedPayrollContract {
   async encryptedBalanceOf(streamKey: string): Promise<string> {
     const contract = await this.getContract(true);
     const handle: string = await contract.encryptedBalanceOf.staticCall(streamKey);
-    await contract.encryptedBalanceOf(streamKey);
+    const tx = await contract.encryptedBalanceOf(streamKey);
+    await tx.wait();
     return handle;
+  }
+
+  /**
+   * Sync a stream to update accrued balances based on elapsed time.
+   * This also refreshes FHE permissions for the balances.
+   */
+  async syncStream(streamKey: string): Promise<string> {
+    const contract = await this.getContract(true);
+    const tx = await contract.syncStream(streamKey);
+    const receipt = await tx.wait();
+    return tx.hash;
   }
 
   async getStreamConfig(streamKey: string) {

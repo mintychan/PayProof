@@ -3,7 +3,7 @@
 import { FormEvent, useMemo, useState } from "react";
 import { useAccount, useWalletClient } from "wagmi";
 import CipherBadge from "./CipherBadge";
-import { useFhevm } from "../providers/FhevmProvider";
+import { useFhevmContext } from "fhevm-ts-sdk/react";
 import { incomeOracleContract } from "../lib/contracts/incomeOracleContract";
 import { parseEther, ethers } from "ethers";
 
@@ -15,7 +15,7 @@ const TIERS = [
 
 export default function PoIAttestationPanel() {
   const { address: verifierAddress } = useAccount();
-  const { encryptNumber, ready: fheReady, initializing, error: fheError, instance } = useFhevm();
+  const { status: fhevmStatus, error: fheError, instance } = useFhevmContext();
   const { data: walletClient } = useWalletClient();
   const [threshold, setThreshold] = useState<string>("");
   const [lookbackDays, setLookbackDays] = useState<number>(30);
@@ -26,6 +26,8 @@ export default function PoIAttestationPanel() {
   const [employer, setEmployer] = useState<string>("");
   const [decryptedResult, setDecryptedResult] = useState<{ meets: boolean; tier: number } | null>(null);
 
+  const fheReady = fhevmStatus === "ready" || fhevmStatus === "sdk-initialized";
+  const initializing = fhevmStatus === "loading";
   const ready = useMemo(() => fheReady && verifierAddress && Number(threshold) > 0 && lookbackDays > 0, [fheReady, verifierAddress, threshold, lookbackDays]);
 
   const oracleAddress = process.env.NEXT_PUBLIC_PAYPROOF_ORACLE_CONTRACT?.trim() || "0xbBbBBBBbbBBBbbbBbbBbbbbBBbBbbbbBbBbbBBbB";
@@ -87,13 +89,18 @@ export default function PoIAttestationPanel() {
       const thresholdWei = parseEther(threshold);
       console.log(`Threshold: ${threshold} ETH = ${thresholdWei} wei`);
 
-      // Encrypt the threshold (in wei)
-      const enc = await encryptNumber({
-        value: thresholdWei,
-        bitSize: 128,
-        contractAddress: oracleAddress,
-        userAddress: verifierAddress
-      });
+      // Encrypt the threshold (in wei) using fhevm instance
+      if (!instance) {
+        throw new Error("FHEVM instance not ready");
+      }
+      const encryptedInput = instance.createEncryptedInput(oracleAddress, verifierAddress);
+      encryptedInput.add128(thresholdWei);
+      const { handles, inputProof } = await encryptedInput.encrypt();
+      const enc = {
+        handle: handles[0],
+        proof: inputProof,
+        summary: `Encrypted ${threshold} ETH threshold`
+      };
       setCiphertext(enc);
 
       // Move to verifying phase

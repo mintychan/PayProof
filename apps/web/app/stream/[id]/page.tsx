@@ -2,17 +2,21 @@
 
 import { useState, useEffect, useMemo, useCallback } from "react";
 import { useAccount, useWalletClient } from "wagmi";
+import { useFhevmContext } from "fhevm-ts-sdk/react";
 import { encryptedPayrollContract, StreamStatus, EncryptedStream } from "../../../lib/contracts/encryptedPayrollContract";
 import { WalletConnectPrompt } from "../../../components/WalletConnect";
-import { useFhevm } from "../../../providers/FhevmProvider";
 import { formatEther, parseEther, ethers } from "ethers";
 
 type StreamPageParams = { id: string } | Promise<{ id: string }>;
 
 export default function EncryptedStreamPage({ params }: { params: StreamPageParams }) {
 const { address, isConnected } = useAccount();
-const { ready: fheReady, initializing, instance, encryptNumber } = useFhevm();
+const { status: fhevmStatus, instance } = useFhevmContext();
 const { data: walletClient } = useWalletClient();
+
+// Map the new SDK status to the old format for compatibility
+const fheReady = fhevmStatus === 'ready' || fhevmStatus === 'sdk-initialized';
+const initializing = fhevmStatus === 'loading';
 const [stream, setStream] = useState<EncryptedStream | null>(null);
 const [loading, setLoading] = useState(true);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -193,21 +197,21 @@ const [loading, setLoading] = useState(true);
         throw new Error("Payroll contract address not configured");
       }
 
-      // Generate keypair for decryption
-      const { publicKey, privateKey } = (instance as any).generateKeypair();
+      // Generate keypair for decryption using the new SDK
+      const { publicKey, privateKey } = instance.generateKeypair();
 
-      // Create EIP-712 signature request
+      // Create EIP-712 signature request using the new SDK
       const startTimestamp = Math.floor(Date.now() / 1000);
       const durationDays = 365;
-        const eip712 = (instance as any).createEIP712(
-          publicKey,
-          [payrollContractAddress],
-          startTimestamp,
-          durationDays
-        );
+      const eip712 = instance.createEIP712(
+        publicKey,
+        [payrollContractAddress],
+        startTimestamp,
+        durationDays
+      );
 
       // Request user signature
-      const signature = await (ethersSigner as any).signTypedData(
+      const signature = await ethersSigner.signTypedData(
         eip712.domain,
         { UserDecryptRequestVerification: eip712.types.UserDecryptRequestVerification },
         eip712.message
@@ -215,8 +219,32 @@ const [loading, setLoading] = useState(true);
 
       console.log("Signature obtained, decrypting...");
 
-      const handleInputs: Array<{ handle: string; contractAddress: string }> = [
-        { handle: stream.rateHandle, contractAddress: payrollContractAddress },
+      // Helper to convert hex string to Uint8Array
+      const hexToUint8Array = (hex: string | Uint8Array | null | undefined | any): Uint8Array => {
+        // Handle null/undefined
+        if (!hex) {
+          throw new Error("Handle is null or undefined");
+        }
+        // If already Uint8Array, return as-is
+        if (hex instanceof Uint8Array) {
+          return hex;
+        }
+        // Ensure it's a string
+        if (typeof hex !== 'string') {
+          console.error('Invalid handle:', hex, 'Type:', typeof hex, 'Constructor:', hex?.constructor?.name);
+          throw new Error(`Invalid handle type: ${typeof hex}. Handle value: ${JSON.stringify(hex)}`);
+        }
+        // Convert hex string to Uint8Array
+        const cleaned = hex.startsWith('0x') ? hex.slice(2) : hex;
+        const bytes = new Uint8Array(cleaned.length / 2);
+        for (let i = 0; i < bytes.length; i++) {
+          bytes[i] = parseInt(cleaned.substr(i * 2, 2), 16);
+        }
+        return bytes;
+      };
+
+      const handleInputs: Array<{ handle: Uint8Array; contractAddress: string }> = [
+        { handle: hexToUint8Array(stream.rateHandle), contractAddress: payrollContractAddress },
       ];
 
       const bufferedHandleValid = stream.bufferedHandle && stream.bufferedHandle !== "0x" && stream.bufferedHandle !== "0x0";
@@ -228,16 +256,19 @@ const [loading, setLoading] = useState(true);
         balanceHandleCandidate !== "0x0";
 
       if (bufferedHandleValid) {
-        handleInputs.push({ handle: stream.bufferedHandle, contractAddress: payrollContractAddress });
+        handleInputs.push({ handle: hexToUint8Array(stream.bufferedHandle), contractAddress: payrollContractAddress });
       }
       if (withdrawnHandleValid) {
-        handleInputs.push({ handle: stream.withdrawnHandle, contractAddress: payrollContractAddress });
+        handleInputs.push({ handle: hexToUint8Array(stream.withdrawnHandle), contractAddress: payrollContractAddress });
       }
       if (balanceHandleValid && balanceHandleCandidate) {
-        handleInputs.push({ handle: balanceHandleCandidate, contractAddress: payrollContractAddress });
+        handleInputs.push({ handle: hexToUint8Array(balanceHandleCandidate), contractAddress: payrollContractAddress });
       }
 
-      const results = await (instance as any).userDecrypt(
+      console.log("Calling userDecrypt with handles:", handleInputs.map(h => ({...h, handle: '0x' + Array.from(h.handle).map(b => b.toString(16).padStart(2, '0')).join('')})));
+
+      // Use the new SDK's userDecrypt method
+      const results = await instance.userDecrypt(
         handleInputs,
         privateKey,
         publicKey,
@@ -248,18 +279,23 @@ const [loading, setLoading] = useState(true);
         durationDays
       );
 
-      const ratePerSecondWei = BigInt(results[stream.rateHandle] ?? 0);
+      console.log("Decryption results:", results);
+
+      // Results are keyed by the hex string handle (without conversion)
+      const rateKey = stream.rateHandle;
+      const ratePerSecondWei = BigInt(results[rateKey] ?? 0);
       const ratePerMonthWei = ratePerSecondWei * BigInt(30 * 24 * 60 * 60);
       const ratePerMonthETH = formatEther(ratePerMonthWei);
 
+      console.log("Rate per second (Wei):", ratePerSecondWei.toString());
       console.log("Rate per month (ETH):", ratePerMonthETH);
 
       setDecryptedRate(ratePerMonthETH);
 
       if (bufferedHandleValid || withdrawnHandleValid || balanceHandleValid) {
-        const bufferedWei = bufferedHandleValid ? BigInt(results[stream.bufferedHandle]) : 0n;
-        const withdrawnWei = withdrawnHandleValid ? BigInt(results[stream.withdrawnHandle]) : 0n;
-        const availableWei = balanceHandleValid && balanceHandleCandidate ? BigInt(results[balanceHandleCandidate]) : null;
+        const bufferedWei = bufferedHandleValid ? BigInt(results[stream.bufferedHandle] ?? 0) : 0n;
+        const withdrawnWei = withdrawnHandleValid ? BigInt(results[stream.withdrawnHandle] ?? 0) : 0n;
+        const availableWei = balanceHandleValid && balanceHandleCandidate ? BigInt(results[balanceHandleCandidate] ?? 0) : null;
 
         let streamedWei: bigint = 0n;
         if (availableWei !== null) {
@@ -361,7 +397,7 @@ const [loading, setLoading] = useState(true);
       setActionError("Connect your wallet to top up the stream.");
       return;
     }
-    if (!encryptNumber) {
+    if (!fheReady || !instance) {
       setActionError("fhEVM encryption is not ready yet.");
       return;
     }
@@ -375,12 +411,16 @@ const [loading, setLoading] = useState(true);
     setActionMessage(null);
     try {
       const amountWei = parseEther(topUpAmount);
-      const encrypted = await encryptNumber({
-        value: amountWei,
-        bitSize: 128,
-        contractAddress: payrollContractAddress,
-        userAddress: address,
-      });
+
+      // Encrypt the top-up amount using the new SDK
+      const input = instance.createEncryptedInput(payrollContractAddress, address);
+      input.add128(amountWei);
+      const encryptionResult = await input.encrypt();
+
+      const encrypted = {
+        handle: encryptionResult.handles[0],
+        proof: encryptionResult.inputProof,
+      };
 
       const txHash = await encryptedPayrollContract.topUp(stream.streamKey, encrypted.handle, encrypted.proof);
       setActionMessage(`Top-up sent: ${txHash.slice(0, 10)}…`);
@@ -397,7 +437,7 @@ const [loading, setLoading] = useState(true);
   const handleCheckBalance = async (): Promise<string | null> => {
     if (!stream) return null;
     if (!address) {
-      setActionError("Connect your wallet to query the encrypted balance.");
+      setActionError("Connect your wallet to sync the stream.");
       return null;
     }
     let fetchedHandle: string | null = null;
@@ -405,12 +445,54 @@ const [loading, setLoading] = useState(true);
       setActionError(null);
       setActionMessage(null);
       setCheckingBalance(true);
-      const handle = await encryptedPayrollContract.encryptedBalanceOf(stream.streamKey);
-      setBalanceHandle(handle);
-      fetchedHandle = handle;
+      const currentStreamKey = stream.streamKey;
+      // Call syncStream to update balances and permissions
+      const txHash = await encryptedPayrollContract.syncStream(currentStreamKey);
+      // Fetch the fresh encrypted withdrawable handle for later decryption
+      const encryptedHandle = await encryptedPayrollContract.encryptedBalanceOf(currentStreamKey);
+      // Refresh the stream data to get updated handles
+      await fetchStream();
+      const normalizedHandle = (() => {
+        if (!encryptedHandle) {
+          return null;
+        }
+        const candidates: unknown[] = Array.isArray(encryptedHandle)
+          ? encryptedHandle
+          : [encryptedHandle, (encryptedHandle as any)?.[0]];
+        for (const candidate of candidates) {
+          if (!candidate) continue;
+          if (typeof candidate === "string" && candidate.startsWith("0x")) {
+            return candidate;
+          }
+          if (candidate instanceof Uint8Array) {
+            return ethers.hexlify(candidate);
+          }
+          if (typeof (candidate as any)?.toHexString === "function") {
+            const hex = (candidate as any).toHexString();
+            if (typeof hex === "string" && hex.startsWith("0x")) {
+              return hex;
+            }
+          }
+          if (typeof (candidate as any)?.toString === "function") {
+            const maybeString = (candidate as any).toString();
+            if (typeof maybeString === "string" && maybeString.startsWith("0x")) {
+              return maybeString;
+            }
+          }
+        }
+        console.warn("Unexpected encrypted balance handle type:", encryptedHandle);
+        return null;
+      })();
+      fetchedHandle = normalizedHandle;
+      setBalanceHandle(fetchedHandle);
+      setActionMessage(
+        txHash
+          ? `Stream synced. Balances updated on-chain (tx ${txHash.slice(0, 10)}…). Balance handle refreshed.`
+          : "Stream synced. Balances updated on-chain. Balance handle refreshed."
+      );
     } catch (error: any) {
-      console.error("Balance query error", error);
-      setActionError(error?.message ?? "Failed to query encrypted balance");
+      console.error("Sync error", error);
+      setActionError(error?.message ?? "Failed to sync stream");
       fetchedHandle = null;
     } finally {
       setCheckingBalance(false);
@@ -420,12 +502,12 @@ const [loading, setLoading] = useState(true);
 
   const handleRevealBalance = async () => {
     if (!stream) return;
-    if (checkingBalance || decrypting) return;
-    const fetchedHandle = await handleCheckBalance();
-    if (!fetchedHandle) {
+    if (decrypting) return;
+    const handle = await handleCheckBalance();
+    if (!handle) {
       return;
     }
-    await handleDecrypt(fetchedHandle);
+    await handleDecrypt(handle);
   };
 
   return (
@@ -539,14 +621,20 @@ const [loading, setLoading] = useState(true);
           {/* Action Buttons */}
           <div className="grid grid-cols-2 gap-4">
             <button
-              onClick={handleDecrypt}
-              disabled={decrypting || !fheReady || !isAuthorized || decryptedRate !== null}
+              onClick={() => void handleRevealBalance()}
+              disabled={decrypting || checkingBalance || !fheReady || !isAuthorized}
               className="rounded-2xl bg-gradient-to-r from-blue-600 to-blue-500 px-6 py-3 text-sm font-semibold text-white transition hover:brightness-110 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
             >
               {decrypting && (
                 <div className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent"></div>
               )}
-              {decrypting ? "Decrypting..." : decryptedRate ? "✓ Decrypted" : !fheReady ? "Initializing..." : "🔓 Decrypt"}
+              {decrypting || checkingBalance
+                ? "Decrypting..."
+                : decryptedBalances
+                  ? "✓ Decrypted"
+                  : !fheReady
+                    ? "Initializing..."
+                    : "🔓 Decrypt"}
             </button>
             <button className="rounded-2xl border border-white/10 bg-slate-900/40 px-6 py-3 text-sm font-semibold text-white transition hover:border-white/20 backdrop-blur">
               Details
@@ -717,31 +805,6 @@ const [loading, setLoading] = useState(true);
 
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
-                <svg className="h-4 w-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-                <span className="text-sm text-slate-300">Available to withdraw</span>
-              </div>
-              {isAuthorized ? (
-                availableDisplay === "Pending" ? (
-                  <button
-                    type="button"
-                    onClick={() => void handleRevealBalance()}
-                    disabled={checkingBalance || decrypting || !fheReady}
-                    className="rounded-full border border-white/10 bg-slate-900/70 px-3 py-1.5 text-xs font-medium text-white transition hover:border-emerald-400/40 hover:text-emerald-200 disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    {checkingBalance || decrypting ? "Decrypting…" : "Decrypt balance"}
-                  </button>
-                ) : (
-                  <span className="font-mono text-sm font-medium text-white">{availableDisplay}</span>
-                )
-              ) : (
-                <span className="font-mono text-sm font-medium text-slate-500">🔒 Encrypted</span>
-              )}
-            </div>
-
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
                 <svg className="h-4 w-4 text-red-400" fill="currentColor" viewBox="0 0 20 20">
                   <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
                 </svg>
@@ -853,7 +916,7 @@ const [loading, setLoading] = useState(true);
                 disabled={checkingBalance}
                 className="rounded-xl border border-white/5 bg-slate-950/60 px-4 py-2 text-sm font-medium text-white transition hover:border-blue-400/40 disabled:cursor-not-allowed disabled:opacity-60"
               >
-                {checkingBalance ? "Requesting…" : "Get encrypted balance"}
+                {checkingBalance ? "Syncing…" : "Sync stream"}
               </button>
               <button
                 type="button"
