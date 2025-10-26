@@ -49,13 +49,13 @@ PayProof solves a critical privacy problem in blockchain-based payroll: how to p
 
 ### Deployed Contracts (Sepolia)
 
-- **EncryptedPayroll**: `0xA596ed08E204041F90f588f5403F1DFE46C3D19a`
-- **IncomeOracle**: `0xCedcAd98B21ae4929f2f220ba57Acf7C6F01fAC8`
+- **EncryptedPayroll**: `0xb1A1927c5960dCD42b457322E3F606BfE05E95d6`
+- **IncomeOracle**: `0xFe74a9453f216433A2ad70e06a9D241B29077BB8`
 
 Both have been verified on Etherscan:
 
-- https://sepolia.etherscan.io/address/0xA596ed08E204041F90f588f5403F1DFE46C3D19a#code
-- https://sepolia.etherscan.io/address/0xCedcAd98B21ae4929f2f220ba57Acf7C6F01fAC8#code
+- https://sepolia.etherscan.io/address/0xb1A1927c5960dCD42b457322E3F606BfE05E95d6#code
+- https://sepolia.etherscan.io/address/0xFe74a9453f216433A2ad70e06a9D241B29077BB8#code
 
 ## 🚀 Getting Started
 
@@ -82,8 +82,8 @@ cp contracts/.env.example contracts/.env
 
 # Configure your .env files with:
 # - NEXT_PUBLIC_SEPOLIA_RPC_URL
-# - NEXT_PUBLIC_PAYPROOF_PAYROLL_CONTRACT
-# - NEXT_PUBLIC_PAYPROOF_ORACLE_CONTRACT
+# - NEXT_PUBLIC_PAYPROOF_PAYROLL_CONTRACT=0xb1A1927c5960dCD42b457322E3F606BfE05E95d6
+# - NEXT_PUBLIC_PAYPROOF_ORACLE_CONTRACT=0xFe74a9453f216433A2ad70e06a9D241B29077BB8
 # - Private keys for deployment (contracts/.env)
 ```
 
