@@ -1,6 +1,6 @@
-import { BrowserProvider, Contract } from "ethers";
+import { BrowserProvider, Contract, isHexString, zeroPadValue } from "ethers";
 import { ENCRYPTED_PAYROLL_ABI } from "./EncryptedPayrollABI";
-import { getStreamKeysForAddress } from "../storage/streamStorage";
+import { getStreamsForAddress, removeStream, storeStream } from "../storage/streamStorage";
 
 const CONTRACT_ADDRESS = process.env.NEXT_PUBLIC_PAYPROOF_PAYROLL_CONTRACT || "";
 
@@ -65,6 +65,24 @@ export class EncryptedPayrollContract {
     }
 
     return new Contract(CONTRACT_ADDRESS, ENCRYPTED_PAYROLL_ABI, provider);
+  }
+
+  private normalizeStreamKey(value: string | null | undefined): string | null {
+    if (!value) return null;
+    let key = value.trim();
+    if (!key) return null;
+    if (!key.startsWith("0x")) {
+      key = `0x${key}`;
+    }
+    if (!isHexString(key)) {
+      return null;
+    }
+    try {
+      const padded = zeroPadValue(key, 32);
+      return padded;
+    } catch {
+      return null;
+    }
   }
 
   /**
@@ -211,9 +229,17 @@ export class EncryptedPayrollContract {
     try {
       const contract = await this.getContract();
 
+      // Normalise stream key to a 32-byte hex value expected by the contract
+      const normalizedKey = this.normalizeStreamKey(streamKey);
+
+      if (!normalizedKey) {
+        console.warn("Invalid stream key format; skipping fetch", streamKey);
+        return null;
+      }
+
       const [streamData, config] = await Promise.all([
-        contract.getStream(streamKey),
-        contract.getStreamConfig(streamKey).catch(() => null),
+        contract.getStream(normalizedKey),
+        contract.getStreamConfig(normalizedKey).catch(() => null),
       ]);
 
       const cadence = Number(streamData.cadenceInSeconds ?? 0);
@@ -229,8 +255,8 @@ export class EncryptedPayrollContract {
       const withdrawnHandle = config?.withdrawnHandle ?? "0x0";
 
       return {
-        streamKey,
-        streamId: streamKey,
+        streamKey: normalizedKey,
+        streamId: normalizedKey,
         numericId,
         employer: streamData.employer,
         employee: streamData.employee,
@@ -315,25 +341,62 @@ export class EncryptedPayrollContract {
 
     // Fallback: Load streamKeys from localStorage
     try {
-      const storedKeys = getStreamKeysForAddress(address);
-      console.log(`Found ${storedKeys.length} stored stream keys for ${address}`);
+      const storedStreams = getStreamsForAddress(address);
+      console.log(`Found ${storedStreams.length} stored stream records for ${address}`);
 
-      for (const streamKey of storedKeys) {
-        if (seen.has(streamKey)) {
-          continue; // Already loaded from events
+      for (const record of storedStreams) {
+        const originalKey = record.streamKey;
+        let keyToUse = this.normalizeStreamKey(originalKey);
+
+        if (!keyToUse) {
+          try {
+            const recomputedKey = await this.computeStreamKey(record.employer, record.employee);
+            const normalizedRecomputedKey = this.normalizeStreamKey(recomputedKey);
+            if (normalizedRecomputedKey) {
+              keyToUse = normalizedRecomputedKey;
+              if (normalizedRecomputedKey !== originalKey) {
+                removeStream(originalKey, record.employer);
+                removeStream(originalKey, record.employee);
+                storeStream(normalizedRecomputedKey, record.employer, record.employee, record.transactionHash);
+              }
+            }
+          } catch (recomputeError) {
+            console.warn("Failed to recompute stream key for stored record", record.streamKey, recomputeError);
+          }
         }
 
-        const stream = await this.getStream(streamKey);
+        if (!keyToUse) {
+          removeStream(record.streamKey, record.employer);
+          removeStream(record.streamKey, record.employee);
+          continue;
+        }
+
+        if (seen.has(keyToUse)) {
+          continue;
+        }
+
+        let stream: EncryptedStream | null = null;
+        try {
+          stream = await this.getStream(keyToUse);
+        } catch (fetchError) {
+          console.warn("Stored stream key failed to fetch, removing", record.streamKey, fetchError);
+          removeStream(record.streamKey, record.employer);
+          removeStream(record.streamKey, record.employee);
+          continue;
+        }
+
         if (stream && stream.status !== StreamStatus.None) {
-          // Verify this stream matches the requested type
           const matches =
             (type === "employer" && stream.employer.toLowerCase() === lowered) ||
             (type === "employee" && stream.employee.toLowerCase() === lowered);
 
           if (matches) {
             streams.push(stream);
-            seen.add(streamKey);
+            seen.add(stream.streamKey);
           }
+        } else {
+          removeStream(record.streamKey, record.employer);
+          removeStream(record.streamKey, record.employee);
         }
       }
     } catch (storageError) {

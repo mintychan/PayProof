@@ -43,6 +43,7 @@ PayProof solves a critical privacy problem in blockchain-based payroll: how to p
 
 - Next.js 15 with App Router
 - Zama fhEVM Relayer SDK (`@zama-fhe/relayer-sdk`)
+- fhEVM TypeScript SDK for React ([`fhevm-ts-sdk`](https://www.npmjs.com/package/fhevm-ts-sdk))
 - Wagmi + Viem for wallet connectivity
 - ethers.js for contract interactions
 - TailwindCSS for styling

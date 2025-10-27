@@ -5,7 +5,7 @@
 
 const STORAGE_KEY_PREFIX = "payproof_streams_";
 
-interface StoredStream {
+export interface StoredStream {
   streamKey: string;
   employer: string;
   employee: string;

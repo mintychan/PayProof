@@ -1,11 +1,11 @@
 "use client";
 
-import { FormEvent, useMemo, useState } from "react";
-import { useAccount, useWalletClient } from "wagmi";
+import { FormEvent, useEffect, useMemo, useState } from "react";
+import { useAccount } from "wagmi";
 import CipherBadge from "./CipherBadge";
-import { useFhevmContext } from "fhevm-ts-sdk/react";
+import { useFhevmContext, type FHEDecryptRequest } from "fhevm-ts-sdk/react";
 import { incomeOracleContract } from "../lib/contracts/incomeOracleContract";
-import { parseEther, ethers } from "ethers";
+import { parseEther } from "ethers";
 
 const TIERS = [
   { label: "Tier A", description: "≥ 2× threshold" },
@@ -15,13 +15,14 @@ const TIERS = [
 
 export default function PoIAttestationPanel() {
   const { address: verifierAddress } = useAccount();
-  const { status: fhevmStatus, error: fheError, instance } = useFhevmContext();
-  const { data: walletClient } = useWalletClient();
+  const { status: fhevmStatus, error: fheError, instance, helpers } = useFhevmContext();
+  const { useDecrypt, useEthersInterop } = helpers;
+  const { ethersSigner } = useEthersInterop();
   const [threshold, setThreshold] = useState<string>("");
   const [lookbackDays, setLookbackDays] = useState<number>(30);
   const [ciphertext, setCiphertext] = useState<{ handle: string; proof: string; summary: string } | null>(null);
   const [result, setResult] = useState<{ attestationId: string; txHash: string; meetsHandle: string; tierHandle: string } | null>(null);
-  const [loadingState, setLoadingState] = useState<"idle" | "encrypting" | "verifying" | "checking" | "decrypting">("idle");
+  const [loadingState, setLoadingState] = useState<"idle" | "encrypting" | "verifying" | "checking">("idle");
   const [formError, setFormError] = useState<string | null>(null);
   const [employer, setEmployer] = useState<string>("");
   const [decryptedResult, setDecryptedResult] = useState<{ meets: boolean; tier: number } | null>(null);
@@ -30,21 +31,87 @@ export default function PoIAttestationPanel() {
   const initializing = fhevmStatus === "loading";
   const ready = useMemo(() => fheReady && verifierAddress && Number(threshold) > 0 && lookbackDays > 0, [fheReady, verifierAddress, threshold, lookbackDays]);
 
-  const oracleAddress = process.env.NEXT_PUBLIC_PAYPROOF_ORACLE_CONTRACT?.trim() || "0xbBbBBBBbbBBBbbbBbbBbbbbBBbBbbbbBbBbbBBbB";
+  const oracleAddress = (process.env.NEXT_PUBLIC_PAYPROOF_ORACLE_CONTRACT?.trim() ||
+    "0xbBbBBBBbbBBBbbbBbbBbbbbBBbBbbbbBbBbbBBbB") as `0x${string}`;
 
-  // Create ethers signer from wagmi wallet client
-  const ethersSigner = useMemo(() => {
-    if (!walletClient || !verifierAddress) return undefined;
+  const fheErrorMessage = useMemo(() => {
+    if (!fheError) return null;
+    if (typeof fheError === "string") return fheError;
+    if (fheError instanceof Error) return fheError.message;
+    return String(fheError);
+  }, [fheError]);
 
-    const eip1193Provider = {
-      request: async (args: any) => {
-        return await walletClient.request(args);
-      },
-    } as ethers.Eip1193Provider;
+  const normalizeHandle = (value: string | null | undefined): `0x${string}` | undefined => {
+    if (!value) return undefined;
+    const trimmed = value.trim();
+    if (!trimmed) return undefined;
+    return (trimmed.startsWith("0x") ? trimmed : `0x${trimmed}`) as `0x${string}`;
+  };
 
-    const ethersProvider = new ethers.BrowserProvider(eip1193Provider);
-    return new ethers.JsonRpcSigner(ethersProvider, verifierAddress);
-  }, [walletClient, verifierAddress]);
+  const decryptRequests = useMemo<readonly FHEDecryptRequest[] | undefined>(() => {
+    if (!result) return undefined;
+    const handles = [
+      normalizeHandle(result.meetsHandle),
+      normalizeHandle(result.tierHandle),
+    ].filter(Boolean) as `0x${string}`[];
+    if (handles.length === 0) return undefined;
+    return handles
+      .map(
+        (handle) =>
+          ({
+            handle,
+            contractAddress: oracleAddress,
+          }) as FHEDecryptRequest,
+      ) as readonly FHEDecryptRequest[];
+  }, [result, oracleAddress]);
+
+  const {
+    canDecrypt: canAttestationDecrypt,
+    decrypt: triggerDecrypt,
+    isDecrypting: attestationDecrypting,
+    message: decryptMessage,
+    results: decryptResults,
+    error: decryptError,
+    reset: resetDecrypt,
+  } = useDecrypt({
+    ethersSigner,
+    requests: decryptRequests,
+  });
+
+  const decryptErrorMessage = decryptError ?? null;
+
+  const coerceDecryptValue = (value: string | bigint | boolean | undefined): number | undefined => {
+    if (typeof value === "undefined") return undefined;
+    if (typeof value === "boolean") return value ? 1 : 0;
+    if (typeof value === "bigint") return Number(value);
+    const numeric = Number(value);
+    return Number.isNaN(numeric) ? undefined : numeric;
+  };
+
+  useEffect(() => {
+    if (!result) {
+      setDecryptedResult(null);
+      return;
+    }
+    const meetsKey = normalizeHandle(result.meetsHandle);
+    const tierKey = normalizeHandle(result.tierHandle);
+    if (!meetsKey || !tierKey) return;
+    const meetsValue = decryptResults[meetsKey];
+    const tierValue = decryptResults[tierKey];
+    const meetsNumeric = coerceDecryptValue(meetsValue);
+    const tierNumeric = coerceDecryptValue(tierValue);
+    if (typeof meetsNumeric === "undefined" || typeof tierNumeric === "undefined") return;
+    setDecryptedResult({
+      meets: meetsNumeric === 1,
+      tier: tierNumeric,
+    });
+  }, [result, decryptResults]);
+
+  useEffect(() => {
+    if (!result) {
+      resetDecrypt();
+    }
+  }, [result, resetDecrypt]);
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -133,70 +200,23 @@ export default function PoIAttestationPanel() {
     }
   };
 
-  const handleDecryptResult = async () => {
-    if (!result || !verifierAddress || !instance || !ethersSigner) {
-      setFormError("Cannot decrypt: missing requirements");
+  const handleDecryptResult = () => {
+    if (!result) {
+      setFormError("No attestation available to decrypt yet.");
+      return;
+    }
+    if (!canAttestationDecrypt) {
+      setFormError("Encrypted attestation not ready. Complete the request first.");
+      return;
+    }
+    if (!ethersSigner) {
+      setFormError("Wallet signer is not available for decryption.");
       return;
     }
 
-    setLoadingState("decrypting");
     setFormError(null);
-
-    try {
-      console.log("Decrypting attestation result...");
-
-      // Generate keypair for decryption
-      const { publicKey, privateKey } = (instance as any).generateKeypair();
-
-      // Create EIP-712 signature request
-      const startTimestamp = Math.floor(Date.now() / 1000);
-      const durationDays = 365;
-      const eip712 = (instance as any).createEIP712(
-        publicKey,
-        [oracleAddress],
-        startTimestamp,
-        durationDays
-      );
-
-      // Request user signature
-      const signature = await (ethersSigner as any).signTypedData(
-        eip712.domain,
-        { UserDecryptRequestVerification: eip712.types.UserDecryptRequestVerification },
-        eip712.message
-      );
-
-      console.log("Signature obtained, decrypting...");
-
-      // Decrypt both handles
-      const results = await (instance as any).userDecrypt(
-        [
-          { handle: result.meetsHandle, contractAddress: oracleAddress },
-          { handle: result.tierHandle, contractAddress: oracleAddress }
-        ],
-        privateKey,
-        publicKey,
-        signature,
-        [oracleAddress],
-        verifierAddress,
-        startTimestamp,
-        durationDays
-      );
-
-      const meetsValue = Number(results[result.meetsHandle]);
-      const tierValue = Number(results[result.tierHandle]);
-
-      console.log("Decrypted values:", { meets: meetsValue, tier: tierValue });
-
-      setDecryptedResult({
-        meets: meetsValue === 1,
-        tier: tierValue
-      });
-    } catch (error: any) {
-      console.error("Decryption error:", error);
-      setFormError(error?.message || "Failed to decrypt attestation result");
-    } finally {
-      setLoadingState("idle");
-    }
+    resetDecrypt();
+    triggerDecrypt();
   };
 
   return (
@@ -274,8 +294,8 @@ export default function PoIAttestationPanel() {
       {formError ? (
         <p className="rounded border border-red-500/40 bg-red-500/10 p-3 text-xs text-red-200">{formError}</p>
       ) : null}
-      {fheError ? (
-        <p className="rounded border border-amber-500/40 bg-amber-500/10 p-3 text-xs text-amber-200">{fheError}</p>
+      {fheErrorMessage ? (
+        <p className="rounded border border-amber-500/40 bg-amber-500/10 p-3 text-xs text-amber-200">{fheErrorMessage}</p>
       ) : null}
       {ciphertext ? (
         <div className="rounded border border-emerald-500/50 bg-emerald-500/10 p-3 text-xs text-emerald-200" data-testid="threshold-ciphertext">
@@ -331,19 +351,29 @@ export default function PoIAttestationPanel() {
           </div>
 
           {/* Decrypt Result Button */}
-          {!decryptedResult && (
+          {result && !decryptedResult && (
             <button
               type="button"
               onClick={handleDecryptResult}
-              disabled={loadingState === "decrypting"}
+              disabled={!canAttestationDecrypt || attestationDecrypting}
               className="w-full rounded-2xl bg-gradient-to-r from-violet-500 to-purple-500 px-4 py-3 text-sm font-semibold text-white transition hover:brightness-110 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
             >
-              {loadingState === "decrypting" && (
+              {attestationDecrypting && (
                 <div className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent"></div>
               )}
-              {loadingState === "decrypting" ? "Decrypting..." : "🔓 Decrypt Result"}
+              {attestationDecrypting ? "Decrypting..." : "🔓 Decrypt Result"}
             </button>
           )}
+
+          {result && !decryptedResult && decryptMessage && (
+            <p className="text-xs text-slate-400 text-center">{decryptMessage}</p>
+          )}
+
+          {decryptErrorMessage ? (
+            <p className="rounded border border-red-500/40 bg-red-500/10 p-3 text-xs text-red-200">
+              {decryptErrorMessage}
+            </p>
+          ) : null}
 
           {/* Decrypted Result */}
           {decryptedResult && (
