@@ -7,9 +7,9 @@ import { encryptedPayrollContract, StreamStatus, EncryptedStream } from "../../.
 import { WalletConnectPrompt } from "../../../components/WalletConnect";
 import { formatEther, parseEther, ethers } from "ethers";
 
-type StreamPageParams = { id: string } | Promise<{ id: string }>;
+type StreamPageProps = { params: { id: string } };
 
-export default function EncryptedStreamPage({ params }: { params: StreamPageParams }) {
+export default function EncryptedStreamPage({ params }: StreamPageProps) {
 const { address, isConnected } = useAccount();
 const { status: fhevmStatus, instance } = useFhevmContext();
 const { data: walletClient } = useWalletClient();
@@ -25,7 +25,7 @@ const [loading, setLoading] = useState(true);
   const [canceling, setCanceling] = useState(false);
   const [topUpAmount, setTopUpAmount] = useState("");
   const [topUpLoading, setTopUpLoading] = useState(false);
-  const [streamKey, setStreamKey] = useState<string | null>(null);
+  const [streamKey, setStreamKey] = useState<string | null>(params?.id ?? null);
   const [balanceHandle, setBalanceHandle] = useState<string | null>(null);
   const [checkingBalance, setCheckingBalance] = useState(false);
   const [decryptedRate, setDecryptedRate] = useState<string | null>(null);
@@ -58,18 +58,6 @@ const [loading, setLoading] = useState(true);
     const ethersProvider = new ethers.BrowserProvider(eip1193Provider);
     return new ethers.JsonRpcSigner(ethersProvider, address);
   }, [walletClient, address]);
-
-  useEffect(() => {
-    let cancelled = false;
-    Promise.resolve(params).then((resolved) => {
-      if (!cancelled) {
-        setStreamKey(resolved.id);
-      }
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [params]);
 
   useEffect(() => {
     setMounted(true);
