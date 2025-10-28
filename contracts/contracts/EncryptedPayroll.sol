@@ -3,13 +3,15 @@ pragma solidity ^0.8.24;
 
 import {FHE, ebool, euint64, euint128, externalEuint64, externalEuint128} from "@fhevm/solidity/lib/FHE.sol";
 import {SepoliaConfig} from "@fhevm/solidity/config/ZamaConfig.sol";
+import {ERC721} from "@openzeppelin/contracts/token/ERC721/ERC721.sol";
+import {ERC721Enumerable} from "@openzeppelin/contracts/token/ERC721/extensions/ERC721Enumerable.sol";
 
 import {IConfidentialLockupRecipient} from "./interfaces/IConfidentialLockupRecipient.sol";
 
 /// @title EncryptedPayroll
 /// @notice Confidential payroll stream manager built on Zama's fhEVM.
 /// @dev Refactored to mirror Sablier-style lockup semantics while keeping stream balances encrypted.
-contract EncryptedPayroll is SepoliaConfig {
+contract EncryptedPayroll is SepoliaConfig, ERC721Enumerable {
     enum StreamStatus {
         None,
         Active,
@@ -71,6 +73,7 @@ contract EncryptedPayroll is SepoliaConfig {
     error InvalidRate();
     error StreamNotCancelable();
     error HookNotAllowlisted();
+    error StreamNotTransferable();
 
     modifier streamExists(bytes32 streamKey) {
         if (streams[streamKey].status == StreamStatus.None) revert StreamNotFound();
@@ -87,7 +90,7 @@ contract EncryptedPayroll is SepoliaConfig {
         _;
     }
 
-    constructor() {
+    constructor() ERC721("PayProof Stream", "PAYSTREAM") {
         admin = msg.sender;
     }
 
@@ -175,6 +178,8 @@ contract EncryptedPayroll is SepoliaConfig {
         FHE.allowThis(stream.ratePerSecond);
         FHE.allow(stream.ratePerSecond, msg.sender);
         FHE.allow(stream.ratePerSecond, employee);
+
+        _safeMint(employee, streamId);
 
         _allowBalances(streamKey);
 
@@ -327,6 +332,17 @@ contract EncryptedPayroll is SepoliaConfig {
         _notifyWithdrawHook(stream, to, withdrawable);
     }
 
+    /// @notice Returns the ERC-721 token id linked to a stream key.
+    function streamTokenId(bytes32 streamKey) external view streamExists(streamKey) returns (uint256) {
+        return streams[streamKey].numericId;
+    }
+
+    /// @notice Returns the current owner of the stream NFT.
+    function streamOwner(bytes32 streamKey) external view streamExists(streamKey) returns (address) {
+        uint256 tokenId = streams[streamKey].numericId;
+        return ownerOf(tokenId);
+    }
+
     /// @notice Returns the encrypted withdrawable balance for the caller and grants transient access.
     function encryptedBalanceOf(bytes32 streamKey) public streamExists(streamKey) returns (euint128) {
         Stream storage stream = streams[streamKey];
@@ -460,5 +476,20 @@ contract EncryptedPayroll is SepoliaConfig {
             response == IConfidentialLockupRecipient.onConfidentialLockupCancel.selector,
             "Hook rejected cancel"
         );
+    }
+
+    function _update(address to, uint256 tokenId, address auth) internal override(ERC721Enumerable) returns (address) {
+        if (to != address(0) && auth != address(0)) {
+            bytes32 streamKey = streamKeyById[tokenId];
+            Stream storage stream = streams[streamKey];
+            if (!stream.transferable || stream.status == StreamStatus.Cancelled || stream.status == StreamStatus.Settled) {
+                revert StreamNotTransferable();
+            }
+        }
+        return super._update(to, tokenId, auth);
+    }
+
+    function supportsInterface(bytes4 interfaceId) public view override(ERC721Enumerable) returns (bool) {
+        return super.supportsInterface(interfaceId);
     }
 }

@@ -1,0 +1,39 @@
+type Stream @entity(immutable: false) {
+  id: Bytes!
+  numericId: BigInt!
+  employer: Bytes!
+  employee: Bytes!
+  cadenceInSeconds: BigInt!
+  startTime: BigInt!
+  status: StreamStatus!
+  cancelable: Boolean!
+  transferable: Boolean!
+  hook: Bytes!
+  createdAtBlock: BigInt!
+  createdAtTimestamp: BigInt!
+  createdTxHash: Bytes!
+  updatedAtBlock: BigInt!
+  updatedAtTimestamp: BigInt!
+  updatedTxHash: Bytes!
+  events: [StreamEvent!]! @derivedFrom(field: "stream")
+}
+
+enum StreamStatus {
+  NONE
+  ACTIVE
+  PAUSED
+  CANCELLED
+  SETTLED
+}
+
+type StreamEvent @entity(immutable: true) {
+  id: Bytes!
+  stream: Stream!
+  eventType: String!
+  actor: Bytes
+  counterparty: Bytes
+  amountHandle: Bytes
+  blockNumber: BigInt!
+  timestamp: BigInt!
+  txHash: Bytes!
+}

@@ -50,13 +50,64 @@ PayProof solves a critical privacy problem in blockchain-based payroll: how to p
 
 ### Deployed Contracts (Sepolia)
 
-- **EncryptedPayroll**: `0xb1A1927c5960dCD42b457322E3F606BfE05E95d6`
+- **EncryptedPayroll**: `0x6fa3a1adC06fefeA333A1ce82B4e36Fac539ed9D`
 - **IncomeOracle**: `0xFe74a9453f216433A2ad70e06a9D241B29077BB8`
 
-Both have been verified on Etherscan:
+### Stream NFTs & Indexing
 
-- https://sepolia.etherscan.io/address/0xb1A1927c5960dCD42b457322E3F606BfE05E95d6#code
-- https://sepolia.etherscan.io/address/0xFe74a9453f216433A2ad70e06a9D241B29077BB8#code
+- Each payroll stream now mints a transferable (unless explicitly disabled) ERC-721 token to the employee. Wallets can enumerate active and historical streams with standard NFT calls (`balanceOf`, `tokenOfOwnerByIndex`).
+- For sender views and analytics, use the Graph subgraph in `subgraph/`. Configure the endpoint via `NEXT_PUBLIC_PAYPROOF_SUBGRAPH_URL` and follow the deployment steps in `subgraph/README.md`.
+- The frontend no longer relies on `localStorage`; both parties always see the same stream history across devices once the subgraph has indexed the latest blocks.
+
+## Deploying the Subgraph (Sepolia)
+
+PayProof ships a ready‑to‑deploy subgraph under `subgraph/`. These steps compile the mappings and push them to **Graph Studio** under the slug `pay-proof` (as shown in the screenshot above). Adjust the slug/version if you fork the project.
+
+1. **Prerequisites**
+
+   - Install pnpm (`npm i -g pnpm`) and the Graph CLI (`pnpm add -g @graphprotocol/graph-cli`).
+   - Ensure the PayProof contracts have been compiled so the ABI in `subgraph/abis/EncryptedPayroll.json` is up to date:
+     ```bash
+     pnpm --filter @payproof/contracts build
+     ```
+2. **Install subgraph tooling & generate types**
+
+   ```bash
+   pnpm --filter @payproof/subgraph install
+   pnpm --filter @payproof/subgraph run codegen
+   pnpm --filter @payproof/subgraph run build
+   ```
+
+   After the build you should see `subgraph/build/subgraph.yaml` and `EncryptedPayroll/EncryptedPayroll.wasm`.
+3. **Deploy to Graph Studio**
+
+   - In the Graph Studio UI create (or reuse) the slug `pay-proof` and copy the deploy key (e.g. `091d92f42ef1470dad9f7b793b97de26`).
+   - Deploy from the repo root:
+     ```bash
+     graph deploy \
+       --node https://api.studio.thegraph.com/deploy/ \
+       --access-token <DEPLOY_KEY> \
+       --version-label v0.1.1 \
+       pay-proof subgraph/subgraph.yaml
+     ```
+
+     Notes:- `--access-token` is the flag currently accepted by Studio (the CLI warns it will switch to `--deploy-key` in the future).
+     - `--version-label` controls the published version (`v0.1.1`, `v0.2.0`, etc.).
+4. **Configure the frontend**
+
+   - Graph Studio returns the query endpoint in the deploy output, e.g.:
+     ```
+     https://api.studio.thegraph.com/query/1704881/pay-proof/v0.1.1
+     ```
+   - Add this to `apps/web/.env`:
+     ```bash
+     NEXT_PUBLIC_PAYPROOF_SUBGRAPH_URL="https://api.studio.thegraph.com/query/1704881/pay-proof/v0.1.1"
+     ```
+   - Rebuild/redeploy the web app so employers load stream lists via the subgraph.
+5. **Subsequent updates**
+
+   - Bump the version label and rerun the same `graph deploy` command after editing mappings or schema.
+   - If you redeploy contracts to a new network update `subgraph/subgraph.yaml` (`source.address`, `network`, `startBlock`) before compiling.
 
 ## 🚀 Getting Started
 
@@ -83,8 +134,9 @@ cp contracts/.env.example contracts/.env
 
 # Configure your .env files with:
 # - NEXT_PUBLIC_SEPOLIA_RPC_URL
-# - NEXT_PUBLIC_PAYPROOF_PAYROLL_CONTRACT=0xb1A1927c5960dCD42b457322E3F606BfE05E95d6
+# - NEXT_PUBLIC_PAYPROOF_PAYROLL_CONTRACT=0x6fa3a1adC06fefeA333A1ce82B4e36Fac539ed9D
 # - NEXT_PUBLIC_PAYPROOF_ORACLE_CONTRACT=0xFe74a9453f216433A2ad70e06a9D241B29077BB8
+# - NEXT_PUBLIC_PAYPROOF_SUBGRAPH_URL=https://api.studio.thegraph.com/query/1704881/pay-proof/v0.1.1
 # - Private keys for deployment (contracts/.env)
 ```
 
@@ -108,17 +160,17 @@ pnpm test:contracts
 pnpm test:e2e
 ```
 
-### Useful scripts
+### Useful commands
 
-From the repo root we expose a few convenience scripts via `package.json`:
+From the repo root:
 
 - `pnpm contracts:compile` – compile all Solidity sources in `contracts/`
 - `pnpm contracts:clean` – clear Hardhat artifacts/cache
-- `pnpm contracts:deploy:sepolia` – deploy `EncryptedPayroll` and `IncomeOracle` to Sepolia using the configured deployer key
-- `pnpm contracts:verify:payroll` – verify the payroll contract (`PAYROLL_ADDRESS=0x… pnpm contracts:verify:payroll`)
-- `pnpm contracts:verify:oracle` – verify the oracle contract (`ORACLE_ADDRESS=0x… PAYROLL_ADDRESS=0x… pnpm contracts:verify:oracle`)
+- `pnpm --filter @payproof/contracts exec -- hardhat run scripts/deployPayroll.ts --network sepolia` – deploy the latest `EncryptedPayroll`
+- `pnpm --filter @payproof/contracts exec -- hardhat run scripts/deployOracle.ts --network sepolia` – (re)deploy the oracle if needed
+- `pnpm --filter @payproof/contracts exec -- hardhat verify --network sepolia <CONTRACT_ADDRESS>` – submit verification to Etherscan (may require rerunning under Node 20 to avoid bytecode mismatches)
 
-Remember to configure `SEPOLIA_RPC_URL`, `DEPLOYER_KEY`, and `ETHERSCAN_API_KEY` in `contracts/.env` before running deploy/verify commands.
+Before deploying or verifying, populate `contracts/.env` with `SEPOLIA_RPC_URL`, `DEPLOYER_KEY`, and `ETHERSCAN_API_KEY`.
 
 ## 📖 User Flows
 
@@ -206,12 +258,12 @@ Remember to configure `SEPOLIA_RPC_URL`, `DEPLOYER_KEY`, and `ETHERSCAN_API_KEY`
 
 When the frontend calls `instance.userDecrypt` it submits up to four handles bound to the payroll contract address:
 
-| Handle | Symbol | Meaning | Decrypted Value |
-|--------|--------|---------|-----------------|
-| `stream.rateHandle` | `r` | Encrypted rate per second | `r` (wei/s) |
-| `stream.bufferedHandle` | `B` | Accrued but still buffered amount | `B` (wei) |
-| `stream.withdrawnHandle` | `W` | Total withdrawn so far | `W` (wei) |
-| `balanceHandle` (from `encryptedBalanceOf`) | `A` | Withdrawable balance | `A` (wei) |
+| Handle                                          | Symbol | Meaning                           | Decrypted Value |
+| ----------------------------------------------- | ------ | --------------------------------- | --------------- |
+| `stream.rateHandle`                           | `r`  | Encrypted rate per second         | `r` (wei/s)   |
+| `stream.bufferedHandle`                       | `B`  | Accrued but still buffered amount | `B` (wei)     |
+| `stream.withdrawnHandle`                      | `W`  | Total withdrawn so far            | `W` (wei)     |
+| `balanceHandle` (from `encryptedBalanceOf`) | `A`  | Withdrawable balance              | `A` (wei)     |
 
 The fhEVM contracts guarantee the invariant `A = (S + B) − W`, where `S` represents the encrypted accrual that is neither buffered nor withdrawn. Rearranging gives the core identity the UI uses after decryption:
 
@@ -270,14 +322,14 @@ The handle array therefore fully determines the visible payroll metrics once dec
 - [X] Comprehensive test coverage (63+ tests)
 - [X] Sepolia deployment
 
-### 🚧 Phase 2: Enhanced Features 
+### 🚧 Phase 2: Enhanced Features
 
-- [x] **Employee withdrawal functionality**
+- [X] **Employee withdrawal functionality**
 
   - Encrypted withdrawal flow (continuous accrual + encrypted hooks)
   - UI actions for withdraw & balance handle retrieval
   - `StreamWithdrawn` event mirroring encrypted amount
-- [x] **Stream top-up UI**
+- [X] **Stream top-up UI**
 
   - Employer-side encrypted top-up tooling
   - Frontend controls for fhEVM encryption + submission
@@ -293,7 +345,7 @@ The handle array therefore fully determines the visible payroll metrics once dec
   - Quick-create streams from templates
   - Department-based default rates
 
-### 🔮 Phase 3: Advanced Privacy Features 
+### 🔮 Phase 3: Advanced Privacy Features
 
 - [ ] **Multi-stream aggregation**
 
@@ -316,7 +368,7 @@ The handle array therefore fully determines the visible payroll metrics once dec
   - Department-wide metrics without individual exposure
   - Compliance reporting with FHE
 
-### 🌐 Phase 4: Ecosystem Integration 
+### 🌐 Phase 4: Ecosystem Integration
 
 - [ ] **DeFi integrations**
 

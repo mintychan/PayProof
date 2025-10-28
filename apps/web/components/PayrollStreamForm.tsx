@@ -6,7 +6,6 @@ import { useFhevmContext } from "fhevm-ts-sdk/react";
 import CipherBadge from "./CipherBadge";
 import { encryptedPayrollContract, CreateStreamResult } from "../lib/contracts/encryptedPayrollContract";
 import { parseEther } from "ethers";
-import { storeStream } from "../lib/storage/streamStorage";
 
 const CADENCE_OPTIONS = [
   { label: "Monthly", seconds: 30 * 24 * 60 * 60 },
@@ -130,24 +129,13 @@ export default function PayrollStreamForm() {
         cadenceInSeconds: cadence,
       });
 
-      const creation = await encryptedPayrollContract.createStream(
-        employerAddress,
-        {
-          employee: employeeAddress,
-          encryptedRatePerSecond: encrypted.handle,
-          rateProof: encrypted.proof,
-          cadenceInSeconds: cadence,
-          startTime: Math.floor(Date.now() / 1000),
-        }
-      );
-
-      // Store the streamKey for later retrieval
-      storeStream(
-        creation.streamKey,
-        employerAddress,
-        employeeAddress,
-        creation.transactionHash
-      );
+      const creation = await encryptedPayrollContract.createStream(employerAddress, {
+        employee: employeeAddress,
+        encryptedRatePerSecond: encrypted.handle,
+        rateProof: encrypted.proof,
+        cadenceInSeconds: cadence,
+        startTime: Math.floor(Date.now() / 1000),
+      });
 
       setResult({
         ...creation,
