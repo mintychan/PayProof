@@ -414,7 +414,6 @@ The handle array therefore fully determines the visible payroll metrics once dec
 - Zero-knowledge proof integration for additional privacy layers
 - Homomorphic encryption optimizations for gas reduction
 - Privacy-preserving payroll tax calculations
-- Encrypted employee benefits management
 
 ## 📄 License
 
