@@ -425,7 +425,7 @@ MIT License - See LICENSE file for details
 
 Built with [Zama&#39;s fhEVM](https://www.zama.ai/fhevm) - Fully Homomorphic Encryption for Ethereum
 
-Submitted for the Zama Builder Tracka
+Submitted for the Zama Builder Track by coderlu
 
 ---
 
