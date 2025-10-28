@@ -398,7 +398,7 @@ export class EncryptedPayrollContract {
     );
 
     const results = await Promise.all(uniqueKeys.map((key) => this.getStream(key)));
-    return results.filter((stream): stream is EncryptedStream => Boolean(stream) && stream.status !== StreamStatus.None);
+    return results.filter((stream): stream is EncryptedStream => stream !== null && stream.status !== StreamStatus.None);
   }
 
   async pauseStream(streamKey: string): Promise<string> {

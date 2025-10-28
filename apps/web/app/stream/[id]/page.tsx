@@ -2,12 +2,13 @@
 
 import { useState, useEffect, useMemo, useCallback } from "react";
 import { useAccount, useWalletClient } from "wagmi";
+// @ts-ignore - fhevm-ts-sdk exports ESM-only declarations; shimmed in types/fhevm.d.ts
 import { useFhevmContext } from "fhevm-ts-sdk/react";
 import { encryptedPayrollContract, StreamStatus, EncryptedStream } from "../../../lib/contracts/encryptedPayrollContract";
 import { WalletConnectPrompt } from "../../../components/WalletConnect";
 import { formatEther, parseEther, ethers } from "ethers";
 
-type StreamPageProps = { params: { id: string } };
+type StreamPageProps = { params: Promise<{ id: string }> };
 
 export default function EncryptedStreamPage({ params }: StreamPageProps) {
 const { address, isConnected } = useAccount();
@@ -15,8 +16,8 @@ const { status: fhevmStatus, instance } = useFhevmContext();
 const { data: walletClient } = useWalletClient();
 
 // Map the new SDK status to the old format for compatibility
-const fheReady = fhevmStatus === 'ready' || fhevmStatus === 'sdk-initialized';
-const initializing = fhevmStatus === 'loading';
+const fheReady = fhevmStatus === "ready";
+const initializing = fhevmStatus === "loading";
 const [stream, setStream] = useState<EncryptedStream | null>(null);
 const [loading, setLoading] = useState(true);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -25,7 +26,7 @@ const [loading, setLoading] = useState(true);
   const [canceling, setCanceling] = useState(false);
   const [topUpAmount, setTopUpAmount] = useState("");
   const [topUpLoading, setTopUpLoading] = useState(false);
-  const [streamKey, setStreamKey] = useState<string | null>(params?.id ?? null);
+  const [streamKey, setStreamKey] = useState<string | null>(null);
   const [balanceHandle, setBalanceHandle] = useState<string | null>(null);
   const [checkingBalance, setCheckingBalance] = useState(false);
   const [decryptedRate, setDecryptedRate] = useState<string | null>(null);
@@ -62,6 +63,18 @@ const [loading, setLoading] = useState(true);
   useEffect(() => {
     setMounted(true);
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    Promise.resolve(params).then((resolved) => {
+      if (!cancelled) {
+        setStreamKey(resolved.id);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [params]);
 
   const fetchStream = useCallback(async () => {
     if (!streamKey) return;
@@ -281,22 +294,22 @@ const [loading, setLoading] = useState(true);
       setDecryptedRate(ratePerMonthETH);
 
       if (bufferedHandleValid || withdrawnHandleValid || balanceHandleValid) {
-        const bufferedWei = bufferedHandleValid ? BigInt(results[stream.bufferedHandle] ?? 0) : 0n;
-        const withdrawnWei = withdrawnHandleValid ? BigInt(results[stream.withdrawnHandle] ?? 0) : 0n;
+        const bufferedWei = bufferedHandleValid ? BigInt(results[stream.bufferedHandle] ?? 0) : BigInt(0);
+        const withdrawnWei = withdrawnHandleValid ? BigInt(results[stream.withdrawnHandle] ?? 0) : BigInt(0);
         const availableWei = balanceHandleValid && balanceHandleCandidate ? BigInt(results[balanceHandleCandidate] ?? 0) : null;
 
-        let streamedWei: bigint = 0n;
+        let streamedWei: bigint = BigInt(0);
         if (availableWei !== null) {
           streamedWei = availableWei + withdrawnWei - bufferedWei;
         } else {
-          streamedWei = withdrawnWei >= bufferedWei ? withdrawnWei - bufferedWei : 0n;
+          streamedWei = withdrawnWei >= bufferedWei ? withdrawnWei - bufferedWei : BigInt(0);
         }
 
-        if (streamedWei < 0n) {
-          streamedWei = 0n;
+        if (streamedWei < BigInt(0)) {
+          streamedWei = BigInt(0);
         }
 
-        const debtWei = streamedWei + bufferedWei < withdrawnWei ? withdrawnWei - streamedWei - bufferedWei : 0n;
+        const debtWei = streamedWei + bufferedWei < withdrawnWei ? withdrawnWei - streamedWei - bufferedWei : BigInt(0);
 
         setDecryptedBalances({
           streamed: formatEther(streamedWei),
@@ -405,9 +418,16 @@ const [loading, setLoading] = useState(true);
       input.add128(amountWei);
       const encryptionResult = await input.encrypt();
 
+      const toHex = (data: string | Uint8Array): string => {
+        if (typeof data === "string") {
+          return data.startsWith("0x") ? data : `0x${data}`;
+        }
+        return `0x${Array.from(data).map((b) => b.toString(16).padStart(2, "0")).join("")}`;
+      };
+
       const encrypted = {
-        handle: encryptionResult.handles[0],
-        proof: encryptionResult.inputProof,
+        handle: toHex(encryptionResult.handles[0]),
+        proof: toHex(encryptionResult.inputProof),
       };
 
       const txHash = await encryptedPayrollContract.topUp(stream.streamKey, encrypted.handle, encrypted.proof);

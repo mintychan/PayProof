@@ -32,8 +32,8 @@ export default function PayrollStreamForm() {
   const networkError = !isCorrectNetwork && employerAddress ? "Please switch MetaMask to Sepolia testnet (Chain ID: 11155111)" : null;
 
   // Check if fhEVM is ready
-  const ready = fhevmStatus === 'ready' || fhevmStatus === 'sdk-initialized';
-  const initializing = fhevmStatus === 'loading';
+  const ready = fhevmStatus === "ready";
+  const initializing = fhevmStatus === "loading";
   const fheError = fhevmError?.message;
 
   const encryptionReady = useMemo(() => {
@@ -82,7 +82,7 @@ export default function PayrollStreamForm() {
       console.log("Rate per second (wei):", ratePerSecond.toString());
       
       // Ensure rate is not 0
-      if (ratePerSecond === 0n) {
+      if (ratePerSecond === BigInt(0)) {
         throw new Error("Rate per second is 0. Please use a higher monthly rate (minimum ~0.0026 ETH/month for 1 wei/second)");
       }
 

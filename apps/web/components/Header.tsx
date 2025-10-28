@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { WalletConnect } from "./WalletConnect";
 
@@ -56,9 +57,9 @@ export function Header() {
     <header className="grid grid-cols-[1fr_auto] items-center gap-4 rounded-3xl border border-white/5 bg-slate-950/70 px-6 py-3.5 shadow-[0_15px_35px_-20px_rgba(2,132,199,0.4)] backdrop-blur">
       <div className="flex items-center gap-8">
         <div className="flex items-center gap-3">
-          <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-gradient-to-br from-orange-500/20 to-orange-600/20 text-orange-400">
-            <span className="text-lg font-bold">PP</span>
-          </span>
+          <div className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-2xl bg-slate-900/80">
+            <Image src="/logo.png" alt="PayProof logo" width={40} height={40} className="h-10 w-10 object-contain" priority />
+          </div>
           <div>
             <p className="text-sm font-semibold tracking-wide text-white">PayProof</p>
             <p className="text-xs text-slate-400">Privacy-preserving payroll</p>

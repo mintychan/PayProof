@@ -25,7 +25,7 @@ function toHex(value: Uint8Array): string {
 
 function coerceToBigInt(raw: number | bigint): bigint {
   if (typeof raw === "bigint") {
-    if (raw < 0n) {
+    if (raw < BigInt(0)) {
       throw new Error("Encrypted values must be non-negative.");
     }
     return raw;
@@ -50,7 +50,7 @@ export function usePayslipData({
 }: PayslipDataParams) {
   const { status: fhevmStatus, instance } = useFhevmContext();
 
-  const fheReady = fhevmStatus === "ready" || fhevmStatus === "sdk-initialized";
+  const fheReady = fhevmStatus === "ready";
   const payrollContract = process.env.NEXT_PUBLIC_PAYPROOF_PAYROLL_CONTRACT?.trim();
 
   const queryEnabled = enabled && Boolean(employeeAddress) && (fheReady && Boolean(instance));
@@ -60,6 +60,10 @@ export function usePayslipData({
     queryFn: async () => {
       if (!employeeAddress) {
         throw new Error("Employee address is required");
+      }
+
+      if (!payrollContract) {
+        throw new Error("Payroll contract address is missing");
       }
 
       const normalizedContract = getAddress(payrollContract);
@@ -72,7 +76,7 @@ export function usePayslipData({
 
         const input = instance.createEncryptedInput(normalizedContract, normalizedEmployee);
         const plaintext = coerceToBigInt(value);
-        const maxValue = (1n << BigInt(bitSize)) - 1n;
+        const maxValue = (BigInt(1) << BigInt(bitSize)) - BigInt(1);
         if (plaintext > maxValue) {
           throw new Error(`Value exceeds ${bitSize}-bit encryption capacity.`);
         }

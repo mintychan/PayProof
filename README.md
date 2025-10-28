@@ -83,6 +83,7 @@ PayProof ships a ready‑to‑deploy subgraph under `subgraph/`. These steps com
 
    - In the Graph Studio UI create (or reuse) the slug `pay-proof` and copy the deploy key (e.g. `091d92f42ef1470dad9f7b793b97de26`).
    - Deploy from the repo root:
+
      ```bash
      graph deploy \
        --node https://api.studio.thegraph.com/deploy/ \
@@ -92,6 +93,7 @@ PayProof ships a ready‑to‑deploy subgraph under `subgraph/`. These steps com
      ```
 
      Notes:- `--access-token` is the flag currently accepted by Studio (the CLI warns it will switch to `--deploy-key` in the future).
+
      - `--version-label` controls the published version (`v0.1.1`, `v0.2.0`, etc.).
 4. **Configure the frontend**
 
@@ -423,7 +425,7 @@ MIT License - See LICENSE file for details
 
 Built with [Zama&#39;s fhEVM](https://www.zama.ai/fhevm) - Fully Homomorphic Encryption for Ethereum
 
-Submitted for the Zama Builder Track
+Submitted for the Zama Builder Tracka
 
 ---
 

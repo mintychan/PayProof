@@ -3,6 +3,7 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useAccount } from "wagmi";
 import CipherBadge from "./CipherBadge";
+// @ts-ignore – fhevm-ts-sdk ships ESM-only declarations
 import { useFhevmContext, type FHEDecryptRequest } from "fhevm-ts-sdk/react";
 import { incomeOracleContract } from "../lib/contracts/incomeOracleContract";
 import { parseEther } from "ethers";
@@ -27,7 +28,7 @@ export default function PoIAttestationPanel() {
   const [employer, setEmployer] = useState<string>("");
   const [decryptedResult, setDecryptedResult] = useState<{ meets: boolean; tier: number } | null>(null);
 
-  const fheReady = fhevmStatus === "ready" || fhevmStatus === "sdk-initialized";
+  const fheReady = fhevmStatus === "ready";
   const initializing = fhevmStatus === "loading";
   const ready = useMemo(() => fheReady && verifierAddress && Number(threshold) > 0 && lookbackDays > 0, [fheReady, verifierAddress, threshold, lookbackDays]);
 
@@ -163,9 +164,17 @@ export default function PoIAttestationPanel() {
       const encryptedInput = instance.createEncryptedInput(oracleAddress, verifierAddress);
       encryptedInput.add128(thresholdWei);
       const { handles, inputProof } = await encryptedInput.encrypt();
+
+      const toHex = (data: string | Uint8Array): string => {
+        if (typeof data === "string") {
+          return data.startsWith("0x") ? data : `0x${data}`;
+        }
+        return `0x${Array.from(data).map((b) => b.toString(16).padStart(2, "0")).join("")}`;
+      };
+
       const enc = {
-        handle: handles[0],
-        proof: inputProof,
+        handle: toHex(handles[0]),
+        proof: toHex(inputProof),
         summary: `Encrypted ${threshold} ETH threshold`
       };
       setCiphertext(enc);
