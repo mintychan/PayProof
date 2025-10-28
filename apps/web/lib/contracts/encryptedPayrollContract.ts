@@ -1,8 +1,10 @@
 import { BrowserProvider, Contract, isHexString, zeroPadValue } from "ethers";
 import { ENCRYPTED_PAYROLL_ABI } from "./EncryptedPayrollABI";
-import { getStreamsForAddress, removeStream, storeStream } from "../storage/streamStorage";
+import { ERC721_ENUMERABLE_ABI } from "./ERC721EnumerableABI";
 
 const CONTRACT_ADDRESS = process.env.NEXT_PUBLIC_PAYPROOF_PAYROLL_CONTRACT || "";
+const SUBGRAPH_URL = process.env.NEXT_PUBLIC_PAYPROOF_SUBGRAPH_URL?.trim();
+const PAYROLL_CONTRACT_ABI = [...ENCRYPTED_PAYROLL_ABI, ...ERC721_ENUMERABLE_ABI];
 
 export enum StreamStatus {
   None = 0,
@@ -61,10 +63,10 @@ export class EncryptedPayrollContract {
 
     if (withSigner) {
       const signer = await provider.getSigner();
-      return new Contract(CONTRACT_ADDRESS, ENCRYPTED_PAYROLL_ABI, signer);
+      return new Contract(CONTRACT_ADDRESS, PAYROLL_CONTRACT_ABI, signer);
     }
 
-    return new Contract(CONTRACT_ADDRESS, ENCRYPTED_PAYROLL_ABI, provider);
+    return new Contract(CONTRACT_ADDRESS, PAYROLL_CONTRACT_ABI, provider);
   }
 
   private normalizeStreamKey(value: string | null | undefined): string | null {
@@ -283,127 +285,120 @@ export class EncryptedPayrollContract {
   }
 
   /**
-   * Query recent StreamCreated events and return any streams involving the address.
-   * Falls back to stored streamKeys from localStorage for older streams.
+   * List streams associated with an address. Employees are resolved via the ERC-721
+   * enumerable interface; employers fall back to the subgraph.
    */
-  async getStreamsByAddress(
-    address: string,
-    type: "employer" | "employee"
-  ): Promise<EncryptedStream[]> {
-    const lowered = address.toLowerCase();
-    const streams: EncryptedStream[] = [];
-    const seen = new Set<string>();
+  async getStreamsByAddress(address: string, type: "employer" | "employee"): Promise<EncryptedStream[]> {
+    if (!address) return [];
 
+    if (type === "employee") {
+      const onChainStreams = await this.getEmployeeStreams(address);
+      if (onChainStreams.length > 0 || !SUBGRAPH_URL) {
+        return onChainStreams;
+      }
+
+      const keys = await this.fetchStreamKeysFromSubgraph(address, "employee");
+      return this.resolveStreams(keys);
+    }
+
+    const employerKeys = await this.fetchStreamKeysFromSubgraph(address, "employer");
+    return this.resolveStreams(employerKeys);
+  }
+
+  private async getEmployeeStreams(address: string): Promise<EncryptedStream[]> {
     try {
       const contract = await this.getContract();
-      const filter = contract.filters.StreamCreated();
-      const currentBlock = await contract.runner?.provider?.getBlockNumber();
-
-      if (!currentBlock) {
-        console.error("Unable to load current block number");
-      } else {
-        const DEFAULT_LOOKBACK = 10_000; // Reduced to fit within Alchemy's free tier limit (10k max)
-        const fromBlock = Math.max(0, currentBlock - DEFAULT_LOOKBACK);
-        const events = await contract.queryFilter(filter, fromBlock, currentBlock);
-
-        // Note: No fallback to full history scan to avoid exceeding block range limits
-        // For older streams, use the stored streamKeys from localStorage
-
-        for (const event of events) {
-          if (!("args" in event) || !event.args) continue;
-
-          const streamEmployer = event.args.employer?.toLowerCase?.() ?? "";
-          const streamEmployee = event.args.employee?.toLowerCase?.() ?? "";
-          const streamKey = event.args.streamKey as string;
-
-          if (seen.has(streamKey)) {
-            continue;
-          }
-
-          const matches =
-            (type === "employer" && streamEmployer === lowered) ||
-            (type === "employee" && streamEmployee === lowered);
-
-          if (!matches) {
-            continue;
-          }
-
-          const stream = await this.getStream(streamKey);
-          if (stream && stream.status !== StreamStatus.None) {
-            streams.push(stream);
-            seen.add(streamKey);
-          }
-        }
+      const balance: bigint = await contract.balanceOf(address);
+      const count = Number(balance);
+      if (!Number.isFinite(count) || count <= 0) {
+        return [];
       }
+
+      const tokenIds = await Promise.all(
+        Array.from({ length: count }, (_, index) => contract.tokenOfOwnerByIndex(address, index))
+      );
+
+      const streamKeys = await Promise.all(
+        tokenIds.map((tokenId: bigint) => contract.streamKeyFor(tokenId))
+      );
+
+      const normalized = streamKeys
+        .map((key: string) => this.normalizeStreamKey(key))
+        .filter((key): key is string => Boolean(key));
+
+      return this.resolveStreams(normalized);
     } catch (error) {
-      console.error("Error fetching encrypted streams from events:", error);
+      console.warn("NFT enumeration failed; falling back to subgraph for employee streams", error);
+      const keys = await this.fetchStreamKeysFromSubgraph(address, "employee");
+      return this.resolveStreams(keys);
+    }
+  }
+
+  private async fetchStreamKeysFromSubgraph(
+    address: string,
+    role: "employer" | "employee"
+  ): Promise<string[]> {
+    if (!SUBGRAPH_URL) {
+      console.warn("Subgraph URL not configured");
+      return [];
     }
 
-    // Fallback: Load streamKeys from localStorage
-    try {
-      const storedStreams = getStreamsForAddress(address);
-      console.log(`Found ${storedStreams.length} stored stream records for ${address}`);
-
-      for (const record of storedStreams) {
-        const originalKey = record.streamKey;
-        let keyToUse = this.normalizeStreamKey(originalKey);
-
-        if (!keyToUse) {
-          try {
-            const recomputedKey = await this.computeStreamKey(record.employer, record.employee);
-            const normalizedRecomputedKey = this.normalizeStreamKey(recomputedKey);
-            if (normalizedRecomputedKey) {
-              keyToUse = normalizedRecomputedKey;
-              if (normalizedRecomputedKey !== originalKey) {
-                removeStream(originalKey, record.employer);
-                removeStream(originalKey, record.employee);
-                storeStream(normalizedRecomputedKey, record.employer, record.employee, record.transactionHash);
-              }
-            }
-          } catch (recomputeError) {
-            console.warn("Failed to recompute stream key for stored record", record.streamKey, recomputeError);
-          }
-        }
-
-        if (!keyToUse) {
-          removeStream(record.streamKey, record.employer);
-          removeStream(record.streamKey, record.employee);
-          continue;
-        }
-
-        if (seen.has(keyToUse)) {
-          continue;
-        }
-
-        let stream: EncryptedStream | null = null;
-        try {
-          stream = await this.getStream(keyToUse);
-        } catch (fetchError) {
-          console.warn("Stored stream key failed to fetch, removing", record.streamKey, fetchError);
-          removeStream(record.streamKey, record.employer);
-          removeStream(record.streamKey, record.employee);
-          continue;
-        }
-
-        if (stream && stream.status !== StreamStatus.None) {
-          const matches =
-            (type === "employer" && stream.employer.toLowerCase() === lowered) ||
-            (type === "employee" && stream.employee.toLowerCase() === lowered);
-
-          if (matches) {
-            streams.push(stream);
-            seen.add(stream.streamKey);
-          }
-        } else {
-          removeStream(record.streamKey, record.employer);
-          removeStream(record.streamKey, record.employee);
+    const query = `
+      query Streams($address: Bytes!) {
+        streams(
+          where: { ${role}: $address }
+          orderBy: updatedAtBlock
+          orderDirection: desc
+        ) {
+          id
         }
       }
-    } catch (storageError) {
-      console.error("Error loading streams from storage:", storageError);
-    }
+    `;
 
-    return streams;
+    try {
+      const response = await fetch(SUBGRAPH_URL, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          query,
+          variables: {
+            address: address.toLowerCase(),
+          },
+        }),
+      });
+
+      if (!response.ok) {
+        console.error("Subgraph query failed", response.status, response.statusText);
+        return [];
+      }
+
+      const payload = await response.json();
+      if (payload.errors) {
+        console.error("Subgraph returned errors", payload.errors);
+        return [];
+      }
+
+      const results: Array<{ id: string }> = payload.data?.streams ?? [];
+      return results
+        .map((item) => this.normalizeStreamKey(item.id))
+        .filter((key): key is string => Boolean(key));
+    } catch (error) {
+      console.error("Unable to query subgraph", error);
+      return [];
+    }
+  }
+
+  private async resolveStreams(streamKeys: (string | null | undefined)[]): Promise<EncryptedStream[]> {
+    const uniqueKeys = Array.from(
+      new Set(
+        streamKeys
+          .filter((key): key is string => typeof key === "string")
+          .map((key) => key.toLowerCase())
+      )
+    );
+
+    const results = await Promise.all(uniqueKeys.map((key) => this.getStream(key)));
+    return results.filter((stream): stream is EncryptedStream => Boolean(stream) && stream.status !== StreamStatus.None);
   }
 
   async pauseStream(streamKey: string): Promise<string> {
@@ -437,13 +432,6 @@ export class EncryptedPayrollContract {
   async topUp(streamKey: string, encryptedAmount: string, amountProof: string): Promise<string> {
     const contract = await this.getContract(true);
     const tx = await contract.topUp(streamKey, encryptedAmount, amountProof);
-    await tx.wait();
-    return tx.hash;
-  }
-
-  async syncStream(streamKey: string): Promise<string> {
-    const contract = await this.getContract(true);
-    const tx = await contract.syncStream(streamKey);
     await tx.wait();
     return tx.hash;
   }
@@ -484,7 +472,7 @@ export class EncryptedPayrollContract {
   async syncStream(streamKey: string): Promise<string> {
     const contract = await this.getContract(true);
     const tx = await contract.syncStream(streamKey);
-    const receipt = await tx.wait();
+    await tx.wait();
     return tx.hash;
   }
 

@@ -278,6 +278,29 @@ describe("EncryptedPayroll (fhEVM) - Comprehensive Tests", function () {
       expect(stream2.employer).to.equal(signers.verifier.address);
     });
 
+    it("mints an NFT to the employee for each stream", async function () {
+      const { streamKey, numericId } = await createStreamWithRate(6);
+      const owner = await payroll.ownerOf(numericId);
+      expect(owner).to.equal(signers.employee.address);
+
+      const storedTokenId = await payroll.streamTokenId(streamKey);
+      expect(storedTokenId).to.equal(numericId);
+
+      const balance = await payroll.balanceOf(signers.employee.address);
+      expect(balance).to.equal(1n);
+    });
+
+    it("prevents transfers when stream is not transferable", async function () {
+      const { streamKey, numericId } = await createStreamWithRate(3);
+      await payroll.connect(signers.employer).configureStream(streamKey, true, false);
+
+      await expect(
+        payroll
+          .connect(signers.employee)
+          ["transferFrom"](signers.employee.address, signers.verifier.address, numericId)
+      ).to.be.revertedWithCustomError(payroll, "StreamNotTransferable");
+    });
+
     it("assigns numeric stream ids and allows reverse lookup", async function () {
       const { streamKey, numericId } = await createStreamWithRate(5);
       const lookedUpId = await payroll.streamIdFor(streamKey);

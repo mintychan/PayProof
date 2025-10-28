@@ -1,0 +1,42 @@
+specVersion: 1.0.0
+description: PayProof payroll streams indexed for analytics and dashboards.
+schema:
+  file: ./schema.graphql
+dataSources:
+  - kind: ethereum/contract
+    name: EncryptedPayroll
+    network: sepolia
+    source:
+      address: "0x6fa3a1adC06fefeA333A1ce82B4e36Fac539ed9D"
+      abi: EncryptedPayroll
+      startBlock: 5770000
+    mapping:
+      kind: ethereum/events
+      apiVersion: 0.0.7
+      language: wasm/assemblyscript
+      file: ./src/mapping.ts
+      entities:
+        - Stream
+        - StreamEvent
+      abis:
+        - name: EncryptedPayroll
+          file: ./abis/EncryptedPayroll.json
+      eventHandlers:
+        - event: StreamCreated(indexed bytes32,indexed uint256,indexed address,address,bytes32,uint32,uint64)
+          handler: handleStreamCreated
+        - event: StreamPaused(indexed bytes32)
+          handler: handleStreamPaused
+        - event: StreamResumed(indexed bytes32)
+          handler: handleStreamResumed
+        - event: StreamCancelled(indexed bytes32)
+          handler: handleStreamCancelled
+        - event: StreamSettled(indexed bytes32)
+          handler: handleStreamSettled
+        - event: StreamConfigured(indexed bytes32,bool,bool)
+          handler: handleStreamConfigured
+        - event: StreamHookUpdated(indexed bytes32,indexed address,indexed address)
+          handler: handleStreamHookUpdated
+        - event: StreamToppedUp(indexed bytes32,bytes32)
+          handler: handleStreamToppedUp
+        - event: StreamWithdrawn(indexed bytes32,indexed uint256,indexed address,address,bytes32)
+          handler: handleStreamWithdrawn
