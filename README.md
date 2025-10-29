@@ -221,6 +221,52 @@ Before deploying or verifying, populate `contracts/.env` with `SEPOLIA_RPC_URL`,
 - On-chain data: Only encrypted ciphertexts (handles)
 - Decryption: Requires private key signature (employer/employee only)
 
+### Sequence Overview
+
+```
+Employer        FHE SDK        EncryptedPayroll       Employee      Hook / Oracle         Lender
+    |             |                   |                  |                |                 |
+    | encrypt rate|                   |                  |                |                 |
+    |-----------> |                   |                  |                |                 |
+    |<--enc. rate-|                   |                  |                |                 |
+    | createStream(encRate, proof) --------------------->|                |                 |
+    |             |                   |--mint NFT------->|                |                 |
+    |             |                   |--emit StreamCreated (enc handles)->|                |
+    |             |                   |                  |                |                 |
+    |<=========== Both parties decrypt balances with fhEVM SDK ===========>|                 |
+    |             |        (time)      |                  |                |                 |
+    |             |------------------->| syncStream accrues encrypted "accrued"             |
+    |             |                   |                  |                |                 |
+    | topUp(encBonus, proof) --------------------------------------------->|                 |
+    |             |                   |--buffered += encBonus-------------|                 |
+    |             |                   |--emit StreamToppedUp-------------->|                 |
+    |             |                   |                  |                |                 |
+    | withdrawMax(streamKey, to) ------------------------>|                |                 |
+    |             |                   |--emit StreamWithdrawn (enc amount)->|               |
+    |             |                   |--notify onConfidentialLockupWithdraw--------------->|
+    |             |                   |                  |                |--update paid----|
+    |             |                   |                  |                |                 |
+    |             |                   |                  |                |                 |
+    |             |                   |                  |                |                 |
+    |             |                   |                  |                |                 |
+    |             |<------- encrypt threshold -----------|                |                 |
+    |             |                   |<--attestMonthlyIncome(encThreshold, proof, days)---|
+    |             |                   |--projectedIncome + compare (all FHE)               |
+    |             |                   |--return enc meetsFlag + tier -->|                  |
+    |             |                   |                  |                |                 |
+    |             |                   |                  |                |<--decrypt result|
+```
+
+### Workflow Summary
+
+![Encrypted Payment Stream Workflow](apps/web/public/workflow.png)
+
+1. **Stream Initialization** – Employer encrypts the salary rate, calls `createStream`, the contract mints the stream NFT to the employee, and both parties receive encrypted balance handles.
+2. **Stream Accrual** – `syncStream` multiplies the encrypted rate by elapsed time to grow the encrypted accrued balance.
+3. **Bonus Top-Up** – Employer encrypts a bonus amount and calls `topUp`, adding the ciphertext to the encrypted buffered pool.
+4. **Withdrawal Process** – Employee, employer, or hook invokes `withdrawMax`. The contract emits a fresh encrypted amount handle and any registered hook (e.g., IncomeOracle) updates paid totals through the callback.
+5. **Income Attestation** – A lender encrypts a threshold and calls `attestMonthlyIncome`. The oracle compares projected income vs. threshold completely under encryption and returns encrypted yes/no + tier results that only the lender can decrypt.
+
 ## 🧪 Test Coverage
 
 ### Contract Tests
