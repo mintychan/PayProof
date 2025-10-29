@@ -341,6 +341,11 @@ The handle array therefore fully determines the visible payroll metrics once dec
   - Create multiple streams in one transaction
   - Bulk pause/resume streams
   - Batch top-ups across multiple employees
+- [ ] **Confidential ETH wrapper**
+
+  - Deploy `ConfidentialFungibleTokenERC20Wrapper` around ETH
+  - Support confidential employer funding and withdrawals
+  - Reuse wrapped balances for cross-contract private transfers
 - [ ] **Stream templates**
 
   - Save commonly used stream configurations

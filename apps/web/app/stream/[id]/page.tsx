@@ -2,8 +2,9 @@
 
 import { useState, useEffect, useMemo, useCallback } from "react";
 import { useAccount, useWalletClient } from "wagmi";
-// @ts-ignore - fhevm-ts-sdk exports ESM-only declarations; shimmed in types/fhevm.d.ts
 import { useFhevmContext } from "fhevm-ts-sdk/react";
+import { fheDecrypt } from "fhevm-ts-sdk/core";
+import { GenericStringInMemoryStorage } from "fhevm-ts-sdk/storage";
 import { encryptedPayrollContract, StreamStatus, EncryptedStream } from "../../../lib/contracts/encryptedPayrollContract";
 import { WalletConnectPrompt } from "../../../components/WalletConnect";
 import { formatEther, parseEther, ethers } from "ethers";
@@ -14,6 +15,7 @@ export default function EncryptedStreamPage({ params }: StreamPageProps) {
 const { address, isConnected } = useAccount();
 const { status: fhevmStatus, instance } = useFhevmContext();
 const { data: walletClient } = useWalletClient();
+const signatureStorage = useMemo(() => new GenericStringInMemoryStorage(), []);
 
 // Map the new SDK status to the old format for compatibility
 const fheReady = fhevmStatus === "ready";
@@ -198,93 +200,70 @@ const [loading, setLoading] = useState(true);
         throw new Error("Payroll contract address not configured");
       }
 
-      // Generate keypair for decryption using the new SDK
-      const { publicKey, privateKey } = instance.generateKeypair();
-
-      // Create EIP-712 signature request using the new SDK
-      const startTimestamp = Math.floor(Date.now() / 1000);
-      const durationDays = 365;
-      const eip712 = instance.createEIP712(
-        publicKey,
-        [payrollContractAddress],
-        startTimestamp,
-        durationDays
-      );
-
-      // Request user signature
-      const signature = await ethersSigner.signTypedData(
-        eip712.domain,
-        { UserDecryptRequestVerification: eip712.types.UserDecryptRequestVerification },
-        eip712.message
-      );
-
-      console.log("Signature obtained, decrypting...");
-
-      // Helper to convert hex string to Uint8Array
-      const hexToUint8Array = (hex: string | Uint8Array | null | undefined | any): Uint8Array => {
-        // Handle null/undefined
-        if (!hex) {
-          throw new Error("Handle is null or undefined");
-        }
-        // If already Uint8Array, return as-is
-        if (hex instanceof Uint8Array) {
-          return hex;
-        }
-        // Ensure it's a string
-        if (typeof hex !== 'string') {
-          console.error('Invalid handle:', hex, 'Type:', typeof hex, 'Constructor:', hex?.constructor?.name);
-          throw new Error(`Invalid handle type: ${typeof hex}. Handle value: ${JSON.stringify(hex)}`);
-        }
-        // Convert hex string to Uint8Array
-        const cleaned = hex.startsWith('0x') ? hex.slice(2) : hex;
-        const bytes = new Uint8Array(cleaned.length / 2);
-        for (let i = 0; i < bytes.length; i++) {
-          bytes[i] = parseInt(cleaned.substr(i * 2, 2), 16);
-        }
-        return bytes;
+      const normalizeHandleValue = (value?: string | null): (`0x${string}` | null) => {
+        if (!value) return null;
+        const trimmed = value.trim();
+        if (!trimmed || trimmed === "0x" || trimmed === "0x0") return null;
+        const prefixed = trimmed.startsWith("0x") ? trimmed : `0x${trimmed}`;
+        const normalized = prefixed as `0x${string}`;
+        return normalized === ethers.ZeroHash ? null : normalized;
       };
 
-      const handleInputs: Array<{ handle: Uint8Array; contractAddress: string }> = [
-        { handle: hexToUint8Array(stream.rateHandle), contractAddress: payrollContractAddress },
-      ];
+      const contractAddress = ethers.getAddress(payrollContractAddress) as `0x${string}`;
 
-      const bufferedHandleValid = stream.bufferedHandle && stream.bufferedHandle !== "0x" && stream.bufferedHandle !== "0x0";
-      const withdrawnHandleValid = stream.withdrawnHandle && stream.withdrawnHandle !== "0x" && stream.withdrawnHandle !== "0x0";
+      const normalizedRateHandle = normalizeHandleValue(stream.rateHandle);
+      if (!normalizedRateHandle) {
+        throw new Error("Stream rate handle unavailable for decryption");
+      }
+
       const balanceHandleCandidate = balanceHandleOverride ?? balanceHandle;
-      const balanceHandleValid =
-        balanceHandleCandidate &&
-        balanceHandleCandidate !== "0x" &&
-        balanceHandleCandidate !== "0x0";
+      const normalizedBufferedHandle = normalizeHandleValue(stream.bufferedHandle);
+      const normalizedWithdrawnHandle = normalizeHandleValue(stream.withdrawnHandle);
+      const normalizedBalanceHandle = normalizeHandleValue(balanceHandleCandidate);
 
-      if (bufferedHandleValid) {
-        handleInputs.push({ handle: hexToUint8Array(stream.bufferedHandle), contractAddress: payrollContractAddress });
-      }
-      if (withdrawnHandleValid) {
-        handleInputs.push({ handle: hexToUint8Array(stream.withdrawnHandle), contractAddress: payrollContractAddress });
-      }
-      if (balanceHandleValid && balanceHandleCandidate) {
-        handleInputs.push({ handle: hexToUint8Array(balanceHandleCandidate), contractAddress: payrollContractAddress });
-      }
+      const handles: (`0x${string}`)[] = [normalizedRateHandle];
+      if (normalizedBufferedHandle) handles.push(normalizedBufferedHandle);
+      if (normalizedWithdrawnHandle) handles.push(normalizedWithdrawnHandle);
+      if (normalizedBalanceHandle) handles.push(normalizedBalanceHandle);
 
-      console.log("Calling userDecrypt with handles:", handleInputs.map(h => ({...h, handle: '0x' + Array.from(h.handle).map(b => b.toString(16).padStart(2, '0')).join('')})));
+      console.log("Calling fheDecrypt with handles:", handles);
 
-      // Use the new SDK's userDecrypt method
-      const results = await instance.userDecrypt(
-        handleInputs,
-        privateKey,
-        publicKey,
-        signature,
-        [payrollContractAddress],
-        address,
-        startTimestamp,
-        durationDays
-      );
+      const results = await fheDecrypt({
+        instance,
+        signer: ethersSigner,
+        storage: signatureStorage,
+        contractAddress,
+        handles,
+      });
 
       console.log("Decryption results:", results);
 
-      // Results are keyed by the hex string handle (without conversion)
-      const rateKey = stream.rateHandle;
-      const ratePerSecondWei = BigInt(results[rateKey] ?? 0);
+      const getResultValue = (handle: `0x${string}` | null): string | bigint | boolean | undefined => {
+        if (!handle) {
+          return undefined;
+        }
+        return results[handle];
+      };
+
+      const toBigInt = (value: string | bigint | boolean | undefined): bigint => {
+        if (typeof value === "bigint") {
+          return value;
+        }
+        if (typeof value === "boolean") {
+          return value ? 1n : 0n;
+        }
+        if (typeof value === "string") {
+          const trimmed = value.trim();
+          if (!trimmed) {
+            return 0n;
+          }
+          // BigInt accepts both decimal and hex (0x-prefixed) strings, so pass through verbatim
+          return BigInt(trimmed);
+        }
+        return 0n;
+      };
+
+      const ratePerSecondWei = toBigInt(getResultValue(normalizedRateHandle));
       const ratePerMonthWei = ratePerSecondWei * BigInt(30 * 24 * 60 * 60);
       const ratePerMonthETH = formatEther(ratePerMonthWei);
 
@@ -293,10 +272,13 @@ const [loading, setLoading] = useState(true);
 
       setDecryptedRate(ratePerMonthETH);
 
-      if (bufferedHandleValid || withdrawnHandleValid || balanceHandleValid) {
-        const bufferedWei = bufferedHandleValid ? BigInt(results[stream.bufferedHandle] ?? 0) : BigInt(0);
-        const withdrawnWei = withdrawnHandleValid ? BigInt(results[stream.withdrawnHandle] ?? 0) : BigInt(0);
-        const availableWei = balanceHandleValid && balanceHandleCandidate ? BigInt(results[balanceHandleCandidate] ?? 0) : null;
+      if (normalizedBufferedHandle || normalizedWithdrawnHandle || normalizedBalanceHandle) {
+        const bufferedWei = normalizedBufferedHandle ? toBigInt(getResultValue(normalizedBufferedHandle)) : 0n;
+        const withdrawnWei = normalizedWithdrawnHandle ? toBigInt(getResultValue(normalizedWithdrawnHandle)) : 0n;
+        const availableWei =
+          normalizedBalanceHandle && getResultValue(normalizedBalanceHandle) !== undefined
+            ? toBigInt(getResultValue(normalizedBalanceHandle))
+            : null;
 
         let streamedWei: bigint = BigInt(0);
         if (availableWei !== null) {
