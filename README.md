@@ -57,7 +57,6 @@ PayProof solves a critical privacy problem in blockchain-based payroll: how to p
 
 - Each payroll stream now mints a transferable (unless explicitly disabled) ERC-721 token to the employee. Wallets can enumerate active and historical streams with standard NFT calls (`balanceOf`, `tokenOfOwnerByIndex`).
 - For sender views and analytics, use the Graph subgraph in `subgraph/`. Configure the endpoint via `NEXT_PUBLIC_PAYPROOF_SUBGRAPH_URL` and follow the deployment steps in `subgraph/README.md`.
-- The frontend no longer relies on `localStorage`; both parties always see the same stream history across devices once the subgraph has indexed the latest blocks.
 
 ## Deploying the Subgraph (Sepolia)
 
