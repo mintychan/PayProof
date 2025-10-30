@@ -51,7 +51,7 @@ PayProof solves a critical privacy problem in blockchain-based payroll: how to p
 ### Deployed Contracts (Sepolia)
 
 - **EncryptedPayroll**: [`0x6fa3a1adc06fefea333a1ce82b4e36fac539ed9d`](https://sepolia.etherscan.io/address/0x6fa3a1adc06fefea333a1ce82b4e36fac539ed9d)
-- **IncomeOracle**: [`0xFe74a9453f216433A2ad70e06a9D241B29077BB8`](https://sepolia.etherscan.io/address/0xFe74a9453f216433A2ad70e06a9D241B29077BB8)
+- **IncomeOracle**: [`0x6cb0aff85dc4fe6afc6d45a2a25334c3d53a802e`](https://sepolia.etherscan.io/address/0x6cb0aff85dc4fe6afc6d45a2a25334c3d53a802e)
 
 ### Stream NFTs & Indexing
 
