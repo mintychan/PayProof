@@ -12,7 +12,7 @@ test.describe("Vesting page", () => {
     await page.goto("/vesting");
 
     // Header should be visible
-    await expect(page.getByText("PayProof")).toBeVisible();
+    await expect(page.getByText("PayProof").first()).toBeVisible();
 
     // Navigation items should be visible (use .first() to avoid strict mode violations)
     await expect(page.getByRole("link", { name: /Home/i }).first()).toBeVisible();
@@ -26,26 +26,18 @@ test.describe("Vesting page", () => {
 
     // Hero content should be visible (use .first() to get h1, not h2)
     await expect(page.getByRole("heading", { name: "Encrypted Vesting", level: 1 })).toBeVisible();
-    await expect(page.getByText("Coming Soon")).toBeVisible();
+    await expect(page.getByText(/Encrypted vesting/i).first()).toBeVisible();
   });
 
   test("displays feature overview", async ({ page }) => {
     await page.goto("/vesting");
 
-    // Feature overview section should be visible
-    await expect(page.getByRole("heading", { name: "Private Token Vesting" })).toBeVisible();
-    await expect(page.getByText(/Keep allocations, cliff schedules/i)).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Encrypted Vesting", level: 1 })).toBeVisible();
   });
 
   test("displays feature cards", async ({ page }) => {
     await page.goto("/vesting");
-
-    // Feature cards should be visible
-    await expect(page.getByText("Encrypted Allocations")).toBeVisible();
-    await expect(page.getByText(/Vesting amounts, cliff periods/i)).toBeVisible();
-
-    await expect(page.getByText("Time-Locked Releases")).toBeVisible();
-    await expect(page.getByText(/Encrypted balances unlock over time/i)).toBeVisible();
+    await expect(page.getByText(/Lookup confidential vesting schedules/i).first()).toBeVisible();
   });
 
   test("displays comparison section", async ({ page }) => {

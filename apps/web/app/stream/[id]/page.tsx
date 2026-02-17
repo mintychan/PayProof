@@ -6,8 +6,18 @@ import { useFhevmContext } from "fhevm-ts-sdk/react";
 import { fheDecrypt } from "fhevm-ts-sdk/core";
 import { GenericStringInMemoryStorage } from "fhevm-ts-sdk/storage";
 import { encryptedPayrollContract, StreamStatus, EncryptedStream } from "../../../lib/contracts/encryptedPayrollContract";
+import { ConfidentialEthContract } from "../../../lib/contracts/confidentialEthContract";
 import { WalletConnectPrompt } from "../../../components/WalletConnect";
-import { formatEther, parseEther, ethers } from "ethers";
+import StreamLabel from "../../../components/StreamLabel";
+import { useStreamLabels } from "../../../hooks/useStreamLabels";
+import StreamingCounter from "../../../components/StreamingCounter";
+import StreamShapeIndicator from "../../../components/StreamShapeIndicator";
+import { formatUnits, parseUnits, ethers } from "ethers";
+import { logger } from "../../../lib/logger";
+import { CONFIDENTIAL_DECIMALS } from "../../../lib/config";
+import StreamTimeline, { StreamEvent } from "../../../components/StreamTimeline";
+import TransactionHistory, { TxRecord } from "../../../components/TransactionHistory";
+import { SkeletonStreamDetail } from "../../../components/Skeleton";
 
 type StreamPageProps = { params: Promise<{ id: string }> };
 
@@ -16,6 +26,7 @@ const { address, isConnected } = useAccount();
 const { status: fhevmStatus, instance } = useFhevmContext();
 const { data: walletClient } = useWalletClient();
 const signatureStorage = useMemo(() => new GenericStringInMemoryStorage(), []);
+const { getLabel, setLabel: setStreamLabel } = useStreamLabels();
 
 // Map the new SDK status to the old format for compatibility
 const fheReady = fhevmStatus === "ready";
@@ -32,7 +43,7 @@ const [loading, setLoading] = useState(true);
   const [balanceHandle, setBalanceHandle] = useState<string | null>(null);
   const [checkingBalance, setCheckingBalance] = useState(false);
   const [decryptedRate, setDecryptedRate] = useState<string | null>(null);
-  const [decryptedBalances, setDecryptedBalances] = useState<
+const [decryptedBalances, setDecryptedBalances] = useState<
     | {
         streamed: string;
         withdrawn: string;
@@ -42,9 +53,13 @@ const [loading, setLoading] = useState(true);
       }
     | null
   >(null);
+  const [decryptedRatePerSecond, setDecryptedRatePerSecond] = useState<bigint>(0n);
+  const [decryptedStreamedWei, setDecryptedStreamedWei] = useState<bigint>(0n);
   const [decrypting, setDecrypting] = useState(false);
   const [decryptError, setDecryptError] = useState<string | null>(null);
   const [mounted, setMounted] = useState(false);
+const [fundingTokenAddress, setFundingTokenAddress] = useState<string | null>(null);
+  const [activeHistoryTab, setActiveHistoryTab] = useState<"timeline" | "transactions">("timeline");
 
   const payrollContractAddress = process.env.NEXT_PUBLIC_PAYPROOF_PAYROLL_CONTRACT?.trim() || "";
 
@@ -67,6 +82,23 @@ const [loading, setLoading] = useState(true);
   }, []);
 
   useEffect(() => {
+    if (!mounted) return;
+    encryptedPayrollContract
+      .fundingToken()
+      .then((addr) => setFundingTokenAddress(addr))
+      .catch((error) => logger.error("Failed to fetch funding token", error));
+  }, [mounted]);
+
+  const resolveFundingToken = useCallback(async () => {
+    if (fundingTokenAddress) {
+      return fundingTokenAddress;
+    }
+    const addr = await encryptedPayrollContract.fundingToken();
+    setFundingTokenAddress(addr);
+    return addr;
+  }, [fundingTokenAddress]);
+
+  useEffect(() => {
     let cancelled = false;
     Promise.resolve(params).then((resolved) => {
       if (!cancelled) {
@@ -87,9 +119,11 @@ const [loading, setLoading] = useState(true);
       setBalanceHandle(null);
       setActionError(null);
       setDecryptedRate(null);
+      setDecryptedRatePerSecond(0n);
+      setDecryptedStreamedWei(0n);
       setDecryptedBalances(null);
     } catch (error) {
-      console.error("Error fetching stream:", error);
+      logger.error("Error fetching stream:", error);
     } finally {
       setLoading(false);
     }
@@ -113,14 +147,7 @@ const [loading, setLoading] = useState(true);
   }, []);
 
   if (!mounted) {
-    return (
-      <div className="flex min-h-[60vh] items-center justify-center">
-        <div className="text-center">
-          <div className="mx-auto h-12 w-12 animate-spin rounded-full border-4 border-sky-500 border-t-transparent"></div>
-          <p className="mt-4 text-sm text-slate-400">Loading stream...</p>
-        </div>
-      </div>
-    );
+    return <SkeletonStreamDetail />;
   }
 
   if (!isConnected) {
@@ -128,14 +155,7 @@ const [loading, setLoading] = useState(true);
   }
 
   if (loading) {
-    return (
-      <div className="flex min-h-[60vh] items-center justify-center">
-        <div className="text-center">
-          <div className="mx-auto h-12 w-12 animate-spin rounded-full border-4 border-sky-500 border-t-transparent"></div>
-          <p className="mt-4 text-sm text-slate-400">Loading stream...</p>
-        </div>
-      </div>
-    );
+    return <SkeletonStreamDetail />;
   }
 
   if (!stream) {
@@ -194,7 +214,7 @@ const [loading, setLoading] = useState(true);
     setDecryptError(null);
 
     try {
-      console.log("Decrypting handles for stream", stream.streamKey);
+      logger.log("Decrypting handles for stream", stream.streamKey);
 
       if (!payrollContractAddress) {
         throw new Error("Payroll contract address not configured");
@@ -226,7 +246,7 @@ const [loading, setLoading] = useState(true);
       if (normalizedWithdrawnHandle) handles.push(normalizedWithdrawnHandle);
       if (normalizedBalanceHandle) handles.push(normalizedBalanceHandle);
 
-      console.log("Calling fheDecrypt with handles:", handles);
+      logger.log("Calling fheDecrypt with handles:", handles);
 
       const results = await fheDecrypt({
         instance,
@@ -236,7 +256,7 @@ const [loading, setLoading] = useState(true);
         handles,
       });
 
-      console.log("Decryption results:", results);
+      logger.log("Decryption results:", results);
 
       const getResultValue = (handle: `0x${string}` | null): string | bigint | boolean | undefined => {
         if (!handle) {
@@ -265,12 +285,13 @@ const [loading, setLoading] = useState(true);
 
       const ratePerSecondWei = toBigInt(getResultValue(normalizedRateHandle));
       const ratePerMonthWei = ratePerSecondWei * BigInt(30 * 24 * 60 * 60);
-      const ratePerMonthETH = formatEther(ratePerMonthWei);
+      const ratePerMonthETH = formatUnits(ratePerMonthWei, CONFIDENTIAL_DECIMALS);
 
-      console.log("Rate per second (Wei):", ratePerSecondWei.toString());
-      console.log("Rate per month (ETH):", ratePerMonthETH);
+      logger.log("Rate per second (Wei):", ratePerSecondWei.toString());
+      logger.log("Rate per month (ETH):", ratePerMonthETH);
 
       setDecryptedRate(ratePerMonthETH);
+      setDecryptedRatePerSecond(ratePerSecondWei);
 
       if (normalizedBufferedHandle || normalizedWithdrawnHandle || normalizedBalanceHandle) {
         const bufferedWei = normalizedBufferedHandle ? toBigInt(getResultValue(normalizedBufferedHandle)) : 0n;
@@ -291,18 +312,20 @@ const [loading, setLoading] = useState(true);
           streamedWei = BigInt(0);
         }
 
+        setDecryptedStreamedWei(streamedWei);
+
         const debtWei = streamedWei + bufferedWei < withdrawnWei ? withdrawnWei - streamedWei - bufferedWei : BigInt(0);
 
         setDecryptedBalances({
-          streamed: formatEther(streamedWei),
-          withdrawn: formatEther(withdrawnWei),
-          available: availableWei !== null ? formatEther(availableWei) : null,
-          buffered: formatEther(bufferedWei),
-          debt: formatEther(debtWei),
+          streamed: formatUnits(streamedWei, CONFIDENTIAL_DECIMALS),
+          withdrawn: formatUnits(withdrawnWei, CONFIDENTIAL_DECIMALS),
+          available: availableWei !== null ? formatUnits(availableWei, CONFIDENTIAL_DECIMALS) : null,
+          buffered: formatUnits(bufferedWei, CONFIDENTIAL_DECIMALS),
+          debt: formatUnits(debtWei, CONFIDENTIAL_DECIMALS),
         });
       }
     } catch (error: any) {
-      console.error("Decryption error:", error);
+      logger.error("Decryption error:", error);
       setDecryptError(error?.message || "Failed to decrypt. Make sure you have permission to decrypt this stream.");
     } finally {
       setDecrypting(false);
@@ -333,7 +356,7 @@ const [loading, setLoading] = useState(true);
       setActionMessage(`Withdrawal sent: ${txHash.slice(0, 10)}…`);
       await fetchStream();
     } catch (error: any) {
-      console.error("Withdraw error", error);
+      logger.error("Withdraw error", error);
       setActionError(error?.message ?? "Failed to withdraw");
     } finally {
       setWithdrawing(false);
@@ -359,7 +382,7 @@ const [loading, setLoading] = useState(true);
       setActionMessage(`Cancellation sent: ${txHash.slice(0, 10)}…`);
       await fetchStream();
     } catch (error: any) {
-      console.error("Cancel error", error);
+      logger.error("Cancel error", error);
       setActionError(error?.message ?? "Failed to cancel stream");
     } finally {
       setCanceling(false);
@@ -393,7 +416,19 @@ const [loading, setLoading] = useState(true);
     setActionError(null);
     setActionMessage(null);
     try {
-      const amountWei = parseEther(topUpAmount);
+      const tokenAddress = await resolveFundingToken();
+      if (!tokenAddress) {
+        throw new Error("Funding token is not available");
+      }
+
+      setActionMessage("Wrapping ETH into confidential cETH…");
+      const confidentialToken = new ConfidentialEthContract(tokenAddress);
+      await confidentialToken.wrapNative(topUpAmount, address);
+
+      setActionMessage("Authorising payroll contract to move your cETH…");
+      await confidentialToken.ensureOperator(payrollContractAddress);
+
+      const amountWei = parseUnits(topUpAmount, CONFIDENTIAL_DECIMALS);
 
       // Encrypt the top-up amount using the new SDK
       const input = instance.createEncryptedInput(payrollContractAddress, address);
@@ -412,12 +447,13 @@ const [loading, setLoading] = useState(true);
         proof: toHex(encryptionResult.inputProof),
       };
 
+      setActionMessage("Submitting encrypted top-up…");
       const txHash = await encryptedPayrollContract.topUp(stream.streamKey, encrypted.handle, encrypted.proof);
       setActionMessage(`Top-up sent: ${txHash.slice(0, 10)}…`);
       setTopUpAmount("");
       await fetchStream();
     } catch (error: any) {
-      console.error("Top-up error", error);
+      logger.error("Top-up error", error);
       setActionError(error?.message ?? "Failed to top up stream");
     } finally {
       setTopUpLoading(false);
@@ -470,7 +506,7 @@ const [loading, setLoading] = useState(true);
             }
           }
         }
-        console.warn("Unexpected encrypted balance handle type:", encryptedHandle);
+        logger.warn("Unexpected encrypted balance handle type:", encryptedHandle);
         return null;
       })();
       fetchedHandle = normalizedHandle;
@@ -481,7 +517,7 @@ const [loading, setLoading] = useState(true);
           : "Stream synced. Balances updated on-chain. Balance handle refreshed."
       );
     } catch (error: any) {
-      console.error("Sync error", error);
+      logger.error("Sync error", error);
       setActionError(error?.message ?? "Failed to sync stream");
       fetchedHandle = null;
     } finally {
@@ -515,13 +551,23 @@ const [loading, setLoading] = useState(true);
       <div className="mb-8 flex items-center gap-4">
         <a
           href="/employee"
+          aria-label="Back to payments"
           className="flex h-10 w-10 items-center justify-center rounded-full bg-slate-900/60 border border-white/5 hover:border-white/10 transition"
         >
           <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
           </svg>
         </a>
-        <h1 className="text-2xl font-semibold text-white">Stream #{stream.streamId.slice(0, 8)}...</h1>
+        <div>
+          <h1 className="text-2xl font-semibold text-white">Stream #{stream.streamId.slice(0, 8)}...</h1>
+          <div className="mt-1">
+            <StreamLabel
+              streamKey={stream.streamKey}
+              initialLabel={getLabel(stream.streamKey)}
+              onLabelChange={(label) => setStreamLabel(stream.streamKey, label)}
+            />
+          </div>
+        </div>
       </div>
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
@@ -571,15 +617,24 @@ const [loading, setLoading] = useState(true);
                   </svg>
                 </div>
 
-                {/* Streamed amount */}
-                <div className="mb-2 text-center">
-                  <div className="text-5xl font-bold bg-gradient-to-br from-white to-slate-300 bg-clip-text text-transparent">
-                    {decryptedRate ? `${parseFloat(decryptedRate).toFixed(6)}` : '0.000000'}
+                {/* Streaming counter -- animates when active & decrypted */}
+                {decryptedRatePerSecond > 0n ? (
+                  <StreamingCounter
+                    ratePerSecond={decryptedRatePerSecond}
+                    totalAccrued={decryptedStreamedWei}
+                    startTime={stream.startTime}
+                    status={stream.status === StreamStatus.Active ? "Active" : "Inactive"}
+                  />
+                ) : (
+                  <div className="mb-2 text-center">
+                    <div className="text-5xl font-bold bg-gradient-to-br from-white to-slate-300 bg-clip-text text-transparent">
+                      {decryptedRate ? `${parseFloat(decryptedRate).toFixed(6)}` : '0.000000'}
+                    </div>
+                    <p className="mt-2 text-sm text-slate-400">
+                      {decryptedRate ? `${parseFloat(decryptedRate).toFixed(6)} ETH / Month` : 'ETH 0.000 / Month'}
+                    </p>
                   </div>
-                  <p className="mt-2 text-sm text-slate-400">
-                    {decryptedRate ? `${parseFloat(decryptedRate).toFixed(6)} ETH / Month` : 'ETH 0.000 / Month'}
-                  </p>
-                </div>
+                )}
               </div>
 
               {/* Small status indicator */}
@@ -595,12 +650,12 @@ const [loading, setLoading] = useState(true);
 
             {/* Bottom info */}
             <div className="absolute bottom-12 flex gap-3">
-              <button className="flex items-center gap-2 rounded-full border border-white/10 bg-slate-900/60 px-4 py-2 text-xs backdrop-blur transition hover:border-white/20">
+              <button aria-label="View stream analytics" className="flex items-center gap-2 rounded-full border border-white/10 bg-slate-900/60 px-4 py-2 text-xs backdrop-blur transition hover:border-white/20">
                 <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
                 </svg>
               </button>
-              <button className="flex items-center gap-2 rounded-full border border-white/10 bg-slate-900/60 px-4 py-2 text-xs backdrop-blur transition hover:border-white/20">
+              <button aria-label="Add funds" className="flex items-center gap-2 rounded-full border border-white/10 bg-slate-900/60 px-4 py-2 text-xs backdrop-blur transition hover:border-white/20">
                 <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
                 </svg>
@@ -624,7 +679,7 @@ const [loading, setLoading] = useState(true);
                   ? "✓ Decrypted"
                   : !fheReady
                     ? "Initializing..."
-                    : "🔓 Decrypt"}
+                    : "Decrypt"}
             </button>
             <button className="rounded-2xl border border-white/10 bg-slate-900/40 px-6 py-3 text-sm font-semibold text-white transition hover:border-white/20 backdrop-blur">
               Details
@@ -657,7 +712,8 @@ const [loading, setLoading] = useState(true);
                   </svg>
                 </div>
                 <div className="flex-1">
-                  <p className="text-xs text-slate-500">Your chainf...eth</p>
+                  <p className="text-[10px] font-medium uppercase tracking-wide text-slate-400">Employer</p>
+                  <p className="text-xs text-slate-500">{stream.employer.slice(0, 6)}...{stream.employer.slice(-4)}</p>
                   <div className="mt-1 flex items-center gap-2">
                     <svg className="h-3 w-3 text-slate-400" fill="currentColor" viewBox="0 0 20 20">
                       <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" />
@@ -675,7 +731,8 @@ const [loading, setLoading] = useState(true);
                   </svg>
                 </div>
                 <div className="flex-1">
-                  <p className="text-xs text-slate-500">0xdf1d...a75</p>
+                  <p className="text-[10px] font-medium uppercase tracking-wide text-slate-400">Employee</p>
+                  <p className="text-xs text-slate-500">{stream.employee.slice(0, 6)}...{stream.employee.slice(-4)}</p>
                 </div>
               </div>
             </div>
@@ -683,7 +740,7 @@ const [loading, setLoading] = useState(true);
 
           {/* Attribute Grid */}
           <div className="grid grid-cols-2 gap-4">
-            {/* Shape */}
+            {/* Shape with stream curve visualization */}
             <div className="rounded-2xl border border-white/5 bg-slate-900/40 p-4 backdrop-blur">
               <div className="flex items-center gap-3">
                 <svg className="h-5 w-5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -691,8 +748,15 @@ const [loading, setLoading] = useState(true);
                 </svg>
                 <div>
                   <p className="text-xs text-slate-500">Shape</p>
-                  <p className="mt-1 text-sm font-medium text-white">Flow</p>
+                  <p className="mt-1 text-sm font-medium text-white">Linear Flow</p>
                 </div>
+              </div>
+              <div className="mt-3">
+                <StreamShapeIndicator
+                  streamType="linear"
+                  currentTime={Math.floor(Date.now() / 1000)}
+                  endTime={stream.startTime + stream.cadenceInSeconds * 12}
+                />
               </div>
             </div>
 
@@ -825,12 +889,12 @@ const [loading, setLoading] = useState(true);
                 </div>
               </div>
               <div className="flex gap-2">
-                <button className="rounded-full border border-white/10 bg-slate-900/60 p-2 transition hover:border-white/20">
+                <button aria-label="Refresh debt info" className="rounded-full border border-white/10 bg-slate-900/60 p-2 transition hover:border-white/20">
                   <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
                   </svg>
                 </button>
-                <button className="rounded-full border border-white/10 bg-slate-900/60 p-2 transition hover:border-white/20">
+                <button aria-label="Share stream" className="rounded-full border border-white/10 bg-slate-900/60 p-2 transition hover:border-white/20">
                   <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
                   </svg>
@@ -848,12 +912,12 @@ const [loading, setLoading] = useState(true);
               </p>
             </div>
             {actionError && (
-              <div className="rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-xs text-red-200">
+              <div aria-live="polite" className="rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-xs text-red-200">
                 {actionError}
               </div>
             )}
             {actionMessage && (
-              <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3 text-xs text-emerald-200">
+              <div aria-live="polite" className="rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3 text-xs text-emerald-200">
                 {actionMessage}
               </div>
             )}
@@ -949,6 +1013,142 @@ const [loading, setLoading] = useState(true);
             </div>
           )}
         </div>
+      </div>
+
+      {/* Timeline & Transactions Section */}
+      <div className="mt-8 rounded-3xl border border-white/5 bg-slate-900/40 p-6 backdrop-blur">
+        {/* Tab Pills */}
+        <div className="mb-6 flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setActiveHistoryTab("timeline")}
+            className={`rounded-full px-4 py-1.5 text-xs font-medium transition ${
+              activeHistoryTab === "timeline"
+                ? "bg-sky-500/20 text-sky-400"
+                : "bg-slate-800 text-slate-400 hover:text-slate-300"
+            }`}
+          >
+            Timeline
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveHistoryTab("transactions")}
+            className={`rounded-full px-4 py-1.5 text-xs font-medium transition ${
+              activeHistoryTab === "transactions"
+                ? "bg-sky-500/20 text-sky-400"
+                : "bg-slate-800 text-slate-400 hover:text-slate-300"
+            }`}
+          >
+            Transactions
+          </button>
+        </div>
+
+        {/* Tab Content */}
+        {activeHistoryTab === "timeline" && (
+          <StreamTimeline
+            events={(() => {
+              const events: StreamEvent[] = [];
+
+              // Stream creation event
+              if (stream.startTime > 0) {
+                events.push({
+                  type: "created",
+                  timestamp: stream.startTime,
+                  txHash: stream.streamKey,
+                  blockNumber: 0,
+                  details: `Stream opened between ${stream.employer.slice(0, 6)}...${stream.employer.slice(-4)} and ${stream.employee.slice(0, 6)}...${stream.employee.slice(-4)}`,
+                });
+              }
+
+              // Status-based events
+              if (stream.status === StreamStatus.Paused) {
+                events.push({
+                  type: "paused",
+                  timestamp: stream.lastAccruedAt || stream.startTime,
+                  txHash: stream.streamKey,
+                  blockNumber: 0,
+                  details: "Stream paused by employer",
+                });
+              }
+
+              if (stream.status === StreamStatus.Cancelled) {
+                events.push({
+                  type: "cancelled",
+                  timestamp: stream.lastAccruedAt || stream.startTime,
+                  txHash: stream.streamKey,
+                  blockNumber: 0,
+                  details: "Stream cancelled",
+                });
+              }
+
+              if (stream.status === StreamStatus.Settled) {
+                events.push({
+                  type: "settled",
+                  timestamp: stream.lastAccruedAt || stream.startTime,
+                  txHash: stream.streamKey,
+                  blockNumber: 0,
+                  details: "Stream fully settled",
+                });
+              }
+
+              // If lastAccruedAt differs from startTime, show a sync event
+              if (stream.lastAccruedAt > 0 && stream.lastAccruedAt !== stream.startTime) {
+                events.push({
+                  type: "synced",
+                  timestamp: stream.lastAccruedAt,
+                  txHash: stream.streamKey,
+                  blockNumber: 0,
+                  details: "Balances synchronized on-chain",
+                });
+              }
+
+              return events;
+            })()}
+          />
+        )}
+
+        {activeHistoryTab === "transactions" && (
+          <TransactionHistory
+            transactions={(() => {
+              const txs: TxRecord[] = [];
+
+              // Creation transaction
+              if (stream.startTime > 0) {
+                txs.push({
+                  txHash: stream.streamKey,
+                  blockNumber: 0,
+                  timestamp: stream.startTime,
+                  type: "created",
+                  from: stream.employer,
+                  to: stream.employee,
+                });
+              }
+
+              // Last accrued sync transaction
+              if (stream.lastAccruedAt > 0 && stream.lastAccruedAt !== stream.startTime) {
+                const statusType =
+                  stream.status === StreamStatus.Paused
+                    ? "paused"
+                    : stream.status === StreamStatus.Cancelled
+                      ? "cancelled"
+                      : stream.status === StreamStatus.Settled
+                        ? "settled"
+                        : "synced";
+
+                txs.push({
+                  txHash: stream.streamKey,
+                  blockNumber: 0,
+                  timestamp: stream.lastAccruedAt,
+                  type: statusType,
+                  from: stream.employer,
+                  to: stream.employee,
+                });
+              }
+
+              return txs;
+            })()}
+          />
+        )}
       </div>
     </section>
   );

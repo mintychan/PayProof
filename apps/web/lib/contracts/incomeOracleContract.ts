@@ -1,6 +1,7 @@
 import { Contract, BrowserProvider } from "ethers";
 import { INCOME_ORACLE_ABI } from "./IncomeOracleABI";
 import { ENCRYPTED_PAYROLL_ABI } from "./EncryptedPayrollABI";
+import { logger } from "../logger";
 
 const ORACLE_CONTRACT_ADDRESS = process.env.NEXT_PUBLIC_PAYPROOF_ORACLE_CONTRACT || "";
 const PAYROLL_CONTRACT_ADDRESS = process.env.NEXT_PUBLIC_PAYPROOF_PAYROLL_CONTRACT || "";
@@ -76,7 +77,7 @@ export class IncomeOracleContract {
   ): Promise<AttestationResult> {
     const oracleContract = await this.getOracleContract(true);
 
-    console.log("Calling attestMonthlyIncome with:", {
+    logger.log("Calling attestMonthlyIncome with:", {
       employer,
       employee,
       encryptedThreshold,
@@ -93,11 +94,11 @@ export class IncomeOracleContract {
       lookbackDays
     );
 
-    console.log("Attestation transaction sent:", tx.hash);
+    logger.log("Attestation transaction sent:", tx.hash);
 
     // Wait for confirmation
     const receipt = await tx.wait();
-    console.log("Attestation confirmed:", receipt);
+    logger.log("Attestation confirmed:", receipt);
 
     // Parse the Attested event
     const event = receipt.logs.find((log: any) => {
@@ -142,7 +143,7 @@ export class IncomeOracleContract {
       // If status is 0 (None), stream doesn't exist
       return stream.status !== 0;
     } catch (error) {
-      console.error("Error checking stream existence:", error);
+      logger.error("Error checking stream existence:", error);
       return false;
     }
   }

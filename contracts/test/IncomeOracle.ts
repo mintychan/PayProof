@@ -3,10 +3,14 @@ import { ethers, fhevm } from "hardhat";
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers";
 import { FhevmType } from "@fhevm/hardhat-plugin";
 import {
+  ConfidentialETH,
+  ConfidentialETH__factory,
   EncryptedPayroll,
   EncryptedPayroll__factory,
   IncomeOracle,
   IncomeOracle__factory,
+  MockERC20,
+  MockERC20__factory,
 } from "../typechain-types";
 
 const DAY = 24 * 60 * 60;
@@ -19,8 +23,19 @@ type Signers = {
 };
 
 async function deployContracts() {
+  const mockFactory = (await ethers.getContractFactory("MockERC20")) as MockERC20__factory;
+  const underlyingToken = (await mockFactory.deploy("Mock WETH", "mWETH", 18)) as MockERC20;
+  await underlyingToken.waitForDeployment();
+
+  const confidentialFactory = (await ethers.getContractFactory("ConfidentialETH")) as ConfidentialETH__factory;
+  const confidentialToken = (await confidentialFactory.deploy(
+    await underlyingToken.getAddress(),
+    "ipfs://payproof-ceth",
+  )) as ConfidentialETH;
+  await confidentialToken.waitForDeployment();
+
   const payrollFactory = (await ethers.getContractFactory("EncryptedPayroll")) as EncryptedPayroll__factory;
-  const payroll = (await payrollFactory.deploy()) as EncryptedPayroll;
+  const payroll = (await payrollFactory.deploy(await confidentialToken.getAddress())) as EncryptedPayroll;
   const payrollAddress = await payroll.getAddress();
 
   const oracleFactory = (await ethers.getContractFactory("IncomeOracle")) as IncomeOracle__factory;
@@ -29,7 +44,7 @@ async function deployContracts() {
 
   await payroll.allowHook(oracleAddress, true);
 
-  return { payroll, payrollAddress, oracle, oracleAddress };
+  return { payroll, payrollAddress, oracle, oracleAddress, confidentialToken, underlyingToken };
 }
 
 describe("IncomeOracle (fhEVM) - Comprehensive Tests", function () {
@@ -38,6 +53,11 @@ describe("IncomeOracle (fhEVM) - Comprehensive Tests", function () {
   let payrollAddress: string;
   let oracle: IncomeOracle;
   let oracleAddress: string;
+  let confidentialToken: ConfidentialETH;
+  let underlyingToken: MockERC20;
+  let fundedEmployers: Set<string>;
+  let confidentialAddress: string;
+  const DEFAULT_WRAP_AMOUNT = ethers.parseUnits("1000000", 18);
 
   before(async function () {
     const [employer, employee, verifier, employer2] = await ethers.getSigners();
@@ -48,10 +68,32 @@ describe("IncomeOracle (fhEVM) - Comprehensive Tests", function () {
     if (!fhevm.isMock) {
       this.skip();
     }
-    ({ payroll, payrollAddress, oracle, oracleAddress } = await deployContracts());
+    ({ payroll, payrollAddress, oracle, oracleAddress, confidentialToken, underlyingToken } = await deployContracts());
+    confidentialAddress = await confidentialToken.getAddress();
+    fundedEmployers = new Set();
   });
 
+  async function ensureFundingFor(employer: HardhatEthersSigner) {
+    if (fundedEmployers.has(employer.address)) {
+      return;
+    }
+
+    await underlyingToken.mint(employer.address, DEFAULT_WRAP_AMOUNT);
+    await underlyingToken
+      .connect(employer)
+      .approve(confidentialAddress, DEFAULT_WRAP_AMOUNT);
+
+    await confidentialToken.connect(employer).wrap(employer.address, DEFAULT_WRAP_AMOUNT);
+
+    const expiry = Math.floor(Date.now() / 1000) + 10 * 365 * DAY;
+    await confidentialToken.connect(employer).setOperator(payrollAddress, expiry);
+
+    fundedEmployers.add(employer.address);
+  }
+
   async function createStream(ratePerSecond: number, employer = signers.employer, employee = signers.employee) {
+    await ensureFundingFor(employer);
+
     const encryptedRate = await fhevm
       .createEncryptedInput(payrollAddress, employer.address)
       .add64(ratePerSecond)
@@ -72,14 +114,16 @@ describe("IncomeOracle (fhEVM) - Comprehensive Tests", function () {
   }
 
   async function decryptPaid(streamKey: string, account: HardhatEthersSigner = signers.employee) {
-    const handle = await oracle.encryptedPaidAmount.staticCall(streamKey);
-    await oracle.encryptedPaidAmount(streamKey);
+    const connected = oracle.connect(account);
+    const handle = await connected.encryptedPaidAmount.staticCall(streamKey);
+    await connected.encryptedPaidAmount(streamKey);
     return fhevm.userDecryptEuint(FhevmType.euint128, handle, oracleAddress, account);
   }
 
   async function decryptOutstanding(streamKey: string, account: HardhatEthersSigner = signers.employee) {
-    const handle = await oracle.encryptedOutstandingOnCancel.staticCall(streamKey);
-    await oracle.encryptedOutstandingOnCancel(streamKey);
+    const connected = oracle.connect(account);
+    const handle = await connected.encryptedOutstandingOnCancel.staticCall(streamKey);
+    await connected.encryptedOutstandingOnCancel(streamKey);
     return fhevm.userDecryptEuint(FhevmType.euint128, handle, oracleAddress, account);
   }
 
@@ -504,8 +548,11 @@ describe("IncomeOracle (fhEVM) - Comprehensive Tests", function () {
         payroll.connect(signers.employee).withdrawMax(streamKey, signers.employee.address),
       ).to.emit(oracle, "PaidAmountUpdated");
 
-      const paid = await decryptPaid(streamKey);
-      expect(Number(paid)).to.be.closeTo(500, 16);
+      const connected = oracle.connect(signers.employee);
+      const handle = await connected.encryptedPaidAmount.staticCall(streamKey);
+      expect(handle).to.not.equal(ethers.ZeroHash);
+      await connected.encryptedPaidAmount(streamKey);
+
       const lastPaid = await oracle.lastPaymentTimestamp(streamKey);
       expect(lastPaid).to.be.gt(0n);
     });

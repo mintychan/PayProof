@@ -1,0 +1,83 @@
+[
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "name": "streamKey",
+        "type": "bytes32"
+      },
+      {
+        "indexed": true,
+        "name": "streamId",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "name": "amountHandle",
+        "type": "bytes32"
+      }
+    ],
+    "name": "PaidAmountUpdated",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "name": "streamKey",
+        "type": "bytes32"
+      },
+      {
+        "indexed": true,
+        "name": "streamId",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "name": "recipientAmountHandle",
+        "type": "bytes32"
+      }
+    ],
+    "name": "OutstandingRecorded",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "name": "employee",
+        "type": "address"
+      },
+      {
+        "indexed": true,
+        "name": "streamId",
+        "type": "bytes32"
+      },
+      {
+        "indexed": false,
+        "name": "lookbackDays",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "name": "meetsHandle",
+        "type": "bytes32"
+      },
+      {
+        "indexed": false,
+        "name": "tierHandle",
+        "type": "bytes32"
+      },
+      {
+        "indexed": false,
+        "name": "attestationId",
+        "type": "bytes32"
+      }
+    ],
+    "name": "Attested",
+    "type": "event"
+  }
+]

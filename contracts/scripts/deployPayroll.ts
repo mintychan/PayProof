@@ -4,8 +4,13 @@ async function main() {
   const [deployer] = await ethers.getSigners();
   console.log("Deploying EncryptedPayroll with account:", deployer.address);
 
+  const tokenAddress = process.env.CONFIDENTIAL_TOKEN_ADDRESS;
+  if (!tokenAddress) {
+    throw new Error("CONFIDENTIAL_TOKEN_ADDRESS env var is required");
+  }
+
   const Payroll = await ethers.getContractFactory("EncryptedPayroll");
-  const payroll = await Payroll.deploy();
+  const payroll = await Payroll.deploy(tokenAddress);
   await payroll.waitForDeployment();
 
   const address = await payroll.getAddress();

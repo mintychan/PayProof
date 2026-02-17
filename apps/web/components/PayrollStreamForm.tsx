@@ -5,7 +5,10 @@ import { useAccount } from "wagmi";
 import { useFhevmContext } from "fhevm-ts-sdk/react";
 import CipherBadge from "./CipherBadge";
 import { encryptedPayrollContract, CreateStreamResult } from "../lib/contracts/encryptedPayrollContract";
-import { parseEther } from "ethers";
+import { parseUnits, ethers } from "ethers";
+import { logger } from "../lib/logger";
+import { SUPPORTED_CHAIN_ID, CONFIDENTIAL_DECIMALS } from "../lib/config";
+import { useToast } from "../hooks/useToast";
 
 const CADENCE_OPTIONS = [
   { label: "Monthly", seconds: 30 * 24 * 60 * 60 },
@@ -16,6 +19,7 @@ const CADENCE_OPTIONS = [
 export default function PayrollStreamForm() {
   const { address: connectedAddress, chain } = useAccount();
   const { status: fhevmStatus, error: fhevmError, instance } = useFhevmContext();
+  const { toast } = useToast();
   const [employeeAddress, setEmployeeAddress] = useState<string>("");
   const [rate, setRate] = useState<string>("");
   const [cadence, setCadence] = useState<number>(CADENCE_OPTIONS[0].seconds);
@@ -28,8 +32,8 @@ export default function PayrollStreamForm() {
   const employerAddress = connectedAddress || "";
 
   // Check if on correct network
-  const isCorrectNetwork = chain?.id === 11155111;
-  const networkError = !isCorrectNetwork && employerAddress ? "Please switch MetaMask to Sepolia testnet (Chain ID: 11155111)" : null;
+  const isCorrectNetwork = chain?.id === SUPPORTED_CHAIN_ID;
+  const networkError = !isCorrectNetwork && employerAddress ? `Please switch MetaMask to Sepolia testnet (Chain ID: ${SUPPORTED_CHAIN_ID})` : null;
 
   // Check if fhEVM is ready
   const ready = fhevmStatus === "ready";
@@ -54,36 +58,37 @@ export default function PayrollStreamForm() {
     }
 
     // Validate employee address
-    if (!employeeAddress || employeeAddress.length !== 42 || !employeeAddress.startsWith("0x")) {
+    if (!employeeAddress || !ethers.isAddress(employeeAddress)) {
       setFormError("Please enter a valid employee address");
       return;
     }
 
     setLoadingState("encrypting");
+    toast({ type: "info", title: "Encrypting rate with FHE...", message: "Your salary rate is being encrypted client-side before on-chain submission." });
     await new Promise(resolve => setTimeout(resolve, 0));
 
     try {
       // Check network using wagmi's chain from useAccount (more reliable than window.ethereum)
       const currentChainId = chain?.id;
-      console.log("Connected to chain:", currentChainId);
-      if (currentChainId !== 11155111) {
-        throw new Error(`Wrong network! Please connect to Sepolia testnet (Chain ID: 11155111). Currently on Chain ID: ${currentChainId}`);
+      logger.log("Connected to chain:", currentChainId);
+      if (currentChainId !== SUPPORTED_CHAIN_ID) {
+        throw new Error(`Wrong network! Please connect to Sepolia testnet (Chain ID: ${SUPPORTED_CHAIN_ID}). Currently on Chain ID: ${currentChainId}`);
       }
 
-      console.log("Contract address being used:", payrollContract);
-      console.log("Employer:", employerAddress);
-      console.log("Employee:", employeeAddress);
+      logger.log("Contract address being used:", payrollContract);
+      logger.log("Employer:", employerAddress);
+      logger.log("Employee:", employeeAddress);
 
-      // Convert rate per month to rate per second in wei
-      const ratePerMonth = parseEther(rate);
+      // Convert rate per month (entered in ETH) to confidential micro-units (6 decimals)
+      const ratePerMonth = parseUnits(rate, CONFIDENTIAL_DECIMALS);
       const ratePerSecond = ratePerMonth / BigInt(30 * 24 * 60 * 60);
 
-      console.log("Rate per month (wei):", ratePerMonth.toString());
-      console.log("Rate per second (wei):", ratePerSecond.toString());
+      logger.log("Rate per month (cETH units):", ratePerMonth.toString());
+      logger.log("Rate per second (cETH units):", ratePerSecond.toString());
       
       // Ensure rate is not 0
       if (ratePerSecond === BigInt(0)) {
-        throw new Error("Rate per second is 0. Please use a higher monthly rate (minimum ~0.0026 ETH/month for 1 wei/second)");
+        throw new Error("Rate per second is 0. Please use a higher monthly rate (at least 1 micro-cETH per second)");
       }
 
       if (!instance) {
@@ -109,7 +114,7 @@ export default function PayrollStreamForm() {
         summary: `Encrypted 64-bit payload for ${payrollContract.slice(0, 10)}…`,
       };
 
-      console.log("Encryption result:", {
+      logger.log("Encryption result:", {
         handle: encrypted.handle,
         proofLength: (encryptionResult.inputProof as any)?.length ?? (encrypted.proof?.length ?? 0),
         summary: encrypted.summary
@@ -122,7 +127,7 @@ export default function PayrollStreamForm() {
       await new Promise(resolve => setTimeout(resolve, 0));
 
       // Create the encrypted stream on-chain
-      console.log("Creating encrypted stream with params:", {
+      logger.log("Creating encrypted stream with params:", {
         employee: employeeAddress,
         encryptedRatePerSecond: encrypted.handle,
         proofLength: encrypted.proof.length,
@@ -142,13 +147,20 @@ export default function PayrollStreamForm() {
         message: `Stream created successfully! Streaming ${rate} ETH/month to ${employeeAddress.slice(0, 6)}...${employeeAddress.slice(-4)}`,
       });
 
+      toast({
+        type: "success",
+        title: "Stream Created",
+        message: `Streaming ${rate} ETH/month to ${employeeAddress.slice(0, 6)}...${employeeAddress.slice(-4)}`,
+      });
+
       // Reset form
       setEmployeeAddress("");
       setRate("");
     } catch (err) {
-      console.error("Stream creation error:", err);
+      logger.error("Stream creation error:", err);
       const message = (err as Error)?.message ?? "Failed to create stream";
       setFormError(message);
+      toast({ type: "error", title: "Stream Creation Failed", message });
     } finally {
       setLoadingState("idle");
     }
@@ -191,7 +203,9 @@ export default function PayrollStreamForm() {
           onChange={(event) => setEmployeeAddress(event.target.value)}
           required
           name="employee"
+          aria-describedby="employee-desc"
         />
+        <span id="employee-desc" className="sr-only">Enter the Ethereum address of the employee who will receive the stream</span>
       </label>
       <div className="grid gap-4 md:grid-cols-2">
         <label className="grid gap-1 text-sm">
@@ -206,7 +220,9 @@ export default function PayrollStreamForm() {
             onChange={(event) => setRate(event.target.value)}
             required
             name="rate"
+            aria-describedby="rate-desc"
           />
+          <span id="rate-desc" className="sr-only">Monthly payment rate in ETH that will be streamed to the employee</span>
         </label>
         <label className="grid gap-1 text-sm">
           <span className="text-slate-300">Cadence</span>

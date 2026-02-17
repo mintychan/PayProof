@@ -6,7 +6,9 @@ import CipherBadge from "./CipherBadge";
 // @ts-ignore – fhevm-ts-sdk ships ESM-only declarations
 import { useFhevmContext, type FHEDecryptRequest } from "fhevm-ts-sdk/react";
 import { incomeOracleContract } from "../lib/contracts/incomeOracleContract";
-import { parseEther } from "ethers";
+import { parseUnits, ethers } from "ethers";
+import { logger } from "../lib/logger";
+import { CONFIDENTIAL_DECIMALS } from "../lib/config";
 
 const TIERS = [
   { label: "Tier A", description: "≥ 2× threshold" },
@@ -129,7 +131,7 @@ export default function PoIAttestationPanel() {
     }
 
     // Validate employer address
-    if (!employer || employer.length !== 42 || !employer.startsWith("0x")) {
+    if (!employer || !ethers.isAddress(employer)) {
       setFormError("Please enter a valid employer address");
       return;
     }
@@ -153,9 +155,9 @@ export default function PoIAttestationPanel() {
       setLoadingState("encrypting");
       await new Promise(resolve => setTimeout(resolve, 0));
 
-      // Convert threshold from ETH to wei (threshold is monthly amount in ETH)
-      const thresholdWei = parseEther(threshold);
-      console.log(`Threshold: ${threshold} ETH = ${thresholdWei} wei`);
+      // Convert threshold from ETH to confidential micro-units (6 decimals)
+      const thresholdWei = parseUnits(threshold, CONFIDENTIAL_DECIMALS);
+      logger.log(`Threshold: ${threshold} ETH = ${thresholdWei} cETH units`);
 
       // Encrypt the threshold (in wei) using fhevm instance
       if (!instance) {
@@ -184,7 +186,7 @@ export default function PoIAttestationPanel() {
       await new Promise(resolve => setTimeout(resolve, 0));
 
       // Call the on-chain oracle to attest income
-      console.log("Calling oracle contract for attestation...");
+      logger.log("Calling oracle contract for attestation...");
       const attestation = await incomeOracleContract.attestMonthlyIncome(
         employer,
         verifierAddress,
@@ -193,7 +195,7 @@ export default function PoIAttestationPanel() {
         lookbackDays
       );
 
-      console.log("Attestation result:", attestation);
+      logger.log("Attestation result:", attestation);
 
       setResult({
         attestationId: attestation.attestationId,
@@ -202,7 +204,7 @@ export default function PoIAttestationPanel() {
         tierHandle: attestation.tierHandle,
       });
     } catch (err) {
-      console.error("Attestation error:", err);
+      logger.error("Attestation error:", err);
       setFormError((err as Error)?.message ?? "Failed to verify income on-chain");
     } finally {
       setLoadingState("idle");

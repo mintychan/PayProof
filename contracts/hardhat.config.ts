@@ -23,15 +23,25 @@ const hardhatNetworkAccounts = {
   mnemonic: process.env.MNEMONIC || DEFAULT_MNEMONIC
 };
 
+const createOptimizerSettings = () => ({
+  optimizer: {
+    enabled: true,
+    runs: 200
+  }
+});
+
 const config: HardhatUserConfig = {
   solidity: {
-    version: "0.8.24",
-    settings: {
-      optimizer: {
-        enabled: true,
-        runs: 200
+    compilers: [
+      {
+        version: "0.8.27",
+        settings: createOptimizerSettings()
+      },
+      {
+        version: "0.8.24",
+        settings: createOptimizerSettings()
       }
-    }
+    ]
   },
   defaultNetwork: "hardhat",
   paths: {

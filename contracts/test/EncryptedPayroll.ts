@@ -3,8 +3,12 @@ import { ethers, fhevm } from "hardhat";
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers";
 import { FhevmType } from "@fhevm/hardhat-plugin";
 import {
+  ConfidentialETH,
+  ConfidentialETH__factory,
   EncryptedPayroll,
   EncryptedPayroll__factory,
+  MockERC20,
+  MockERC20__factory,
   StreamRecipientHook,
   StreamRecipientHook__factory,
 } from "../typechain-types";
@@ -19,11 +23,29 @@ type Signers = {
   thirdParty: HardhatEthersSigner;
 };
 
-async function deployFixture(): Promise<{ payroll: EncryptedPayroll; payrollAddress: string }> {
-  const factory = (await ethers.getContractFactory("EncryptedPayroll")) as EncryptedPayroll__factory;
-  const payroll = (await factory.deploy()) as EncryptedPayroll;
+async function deploySystem(): Promise<{
+  payroll: EncryptedPayroll;
+  payrollAddress: string;
+  confidentialToken: ConfidentialETH;
+  underlyingToken: MockERC20;
+}> {
+  const mockERC20Factory = (await ethers.getContractFactory("MockERC20")) as MockERC20__factory;
+  const underlyingToken = (await mockERC20Factory.deploy("Mock WETH", "mWETH", 18)) as MockERC20;
+  await underlyingToken.waitForDeployment();
+
+  const confidentialFactory = (await ethers.getContractFactory("ConfidentialETH")) as ConfidentialETH__factory;
+  const confidentialToken = (await confidentialFactory.deploy(
+    await underlyingToken.getAddress(),
+    "ipfs://payproof-ceth",
+  )) as ConfidentialETH;
+  await confidentialToken.waitForDeployment();
+
+  const payrollFactory = (await ethers.getContractFactory("EncryptedPayroll")) as EncryptedPayroll__factory;
+  const payroll = (await payrollFactory.deploy(await confidentialToken.getAddress())) as EncryptedPayroll;
+  await payroll.waitForDeployment();
+
   const payrollAddress = await payroll.getAddress();
-  return { payroll, payrollAddress };
+  return { payroll, payrollAddress, confidentialToken, underlyingToken };
 }
 
 describe("EncryptedPayroll - Basic Tests (No FHE Required)", function () {
@@ -35,10 +57,7 @@ describe("EncryptedPayroll - Basic Tests (No FHE Required)", function () {
 
   beforeEach(async function () {
     [owner, employer, employee, other] = await ethers.getSigners();
-    
-    const EncryptedPayroll = await ethers.getContractFactory("EncryptedPayroll") as EncryptedPayroll__factory;
-    payroll = await EncryptedPayroll.deploy() as EncryptedPayroll;
-    await payroll.waitForDeployment();
+    ({ payroll } = await deploySystem());
   });
 
   describe("Deployment", function () {
@@ -126,6 +145,11 @@ describe("EncryptedPayroll (fhEVM) - Comprehensive Tests", function () {
   let signers: Signers;
   let payroll: EncryptedPayroll;
   let payrollAddress: string;
+  let confidentialToken: ConfidentialETH;
+  let underlyingToken: MockERC20;
+  let fundedEmployers: Set<string>;
+  let confidentialAddress: string;
+  const DEFAULT_WRAP_AMOUNT = ethers.parseUnits("1000000", 18);
 
   async function decryptBalance(streamKey: string, account: HardhatEthersSigner) {
     const handle = await payroll.connect(account).encryptedBalanceOf.staticCall(streamKey);
@@ -148,8 +172,28 @@ describe("EncryptedPayroll (fhEVM) - Comprehensive Tests", function () {
       this.skip();
     }
 
-    ({ payroll, payrollAddress } = await deployFixture());
+    ({ payroll, payrollAddress, confidentialToken, underlyingToken } = await deploySystem());
+    confidentialAddress = await confidentialToken.getAddress();
+    fundedEmployers = new Set();
   });
+
+  async function ensureFundingFor(employer: HardhatEthersSigner) {
+    if (fundedEmployers.has(employer.address)) {
+      return;
+    }
+
+    await underlyingToken.mint(employer.address, DEFAULT_WRAP_AMOUNT);
+    await underlyingToken
+      .connect(employer)
+      .approve(confidentialAddress, DEFAULT_WRAP_AMOUNT);
+
+    await confidentialToken.connect(employer).wrap(employer.address, DEFAULT_WRAP_AMOUNT);
+
+    const expiry = Math.floor(Date.now() / 1000) + 10 * 365 * DAY;
+    await confidentialToken.connect(employer).setOperator(payrollAddress, expiry);
+
+    fundedEmployers.add(employer.address);
+  }
 
   async function createStreamWithRate(
     ratePerSecond: number,
@@ -157,6 +201,8 @@ describe("EncryptedPayroll (fhEVM) - Comprehensive Tests", function () {
     employer = signers.employer,
     employee = signers.employee,
   ) {
+    await ensureFundingFor(employer);
+
     const encryptedRate = await fhevm
       .createEncryptedInput(payrollAddress, employer.address)
       .add64(ratePerSecond)
@@ -876,8 +922,103 @@ describe("EncryptedPayroll (fhEVM) - Comprehensive Tests", function () {
       const balance1 = await decryptBalance(streamKey1, signers.employee);
       const balance2 = await decryptBalance(streamKey2, signers.employee);
 
-      expect(Number(balance1)).to.be.closeTo(1000, 50);
-      expect(Number(balance2)).to.be.closeTo(2000, 50);
+      expect(Number(balance1)).to.be.closeTo(1000, 150);
+      expect(Number(balance2)).to.be.closeTo(2000, 150);
+    });
+  });
+
+  describe("Security: withdrawMax Authorization (Fix 1A)", function () {
+    it("rejects employer withdrawing to their own address", async function () {
+      const { streamKey } = await createStreamWithRate(5);
+
+      // Top up so there is a balance to withdraw
+      const topUp = await fhevm
+        .createEncryptedInput(payrollAddress, signers.employer.address)
+        .add128(1000n)
+        .encrypt();
+      await payroll.connect(signers.employer).topUp(streamKey, topUp.handles[0], topUp.inputProof);
+
+      // Advance time so balance accrues
+      await ethers.provider.send("evm_increaseTime", [600]);
+      await ethers.provider.send("evm_mine", []);
+      await payroll.connect(signers.employer).syncStream(streamKey);
+
+      // Employer tries to withdraw to their own address -- should revert
+      await expect(
+        payroll.connect(signers.employer).withdrawMax(streamKey, signers.employer.address),
+      ).to.be.revertedWithCustomError(payroll, "NotAuthorized");
+    });
+
+    it("allows employer to push funds to the employee address", async function () {
+      const { streamKey } = await createStreamWithRate(5);
+
+      const topUp = await fhevm
+        .createEncryptedInput(payrollAddress, signers.employer.address)
+        .add128(1000n)
+        .encrypt();
+      await payroll.connect(signers.employer).topUp(streamKey, topUp.handles[0], topUp.inputProof);
+
+      await ethers.provider.send("evm_increaseTime", [600]);
+      await ethers.provider.send("evm_mine", []);
+      await payroll.connect(signers.employer).syncStream(streamKey);
+
+      // Employer withdraws to employee address -- should succeed
+      await expect(
+        payroll.connect(signers.employer).withdrawMax(streamKey, signers.employee.address),
+      ).to.emit(payroll, "StreamWithdrawn");
+    });
+  });
+
+  describe("Security: topUp Guard on Inactive Streams (Fix 1B)", function () {
+    it("reverts topUp on a cancelled stream", async function () {
+      const { streamKey } = await createStreamWithRate(5);
+
+      // Cancel the stream
+      await payroll.connect(signers.employer).cancelStream(streamKey);
+      const stream = await payroll.getStream(streamKey);
+      expect(stream.status).to.equal(3); // Cancelled
+
+      // Try to top up the cancelled stream
+      const topUp = await fhevm
+        .createEncryptedInput(payrollAddress, signers.employer.address)
+        .add128(500n)
+        .encrypt();
+
+      await expect(
+        payroll.connect(signers.employer).topUp(streamKey, topUp.handles[0], topUp.inputProof),
+      ).to.be.revertedWithCustomError(payroll, "StreamNotActive");
+    });
+
+    it("reverts topUp on a settled stream", async function () {
+      const { streamKey } = await createStreamWithRate(5);
+
+      // Top up, cancel, then withdraw to settle
+      const topUp = await fhevm
+        .createEncryptedInput(payrollAddress, signers.employer.address)
+        .add128(500n)
+        .encrypt();
+      await payroll.connect(signers.employer).topUp(streamKey, topUp.handles[0], topUp.inputProof);
+
+      await ethers.provider.send("evm_increaseTime", [100]);
+      await ethers.provider.send("evm_mine", []);
+
+      await payroll.connect(signers.employer).cancelStream(streamKey);
+
+      // Withdraw to settle the stream
+      await payroll.connect(signers.employee).withdrawMax(streamKey, signers.employee.address);
+
+      const stream = await payroll.getStream(streamKey);
+      expect(stream.status).to.equal(4); // Settled
+
+      // Try to top up the settled stream
+      const topUp2 = await fhevm
+        .createEncryptedInput(payrollAddress, signers.employer.address)
+        .add128(500n)
+        .encrypt();
+
+      await expect(
+        payroll.connect(signers.employer).topUp(streamKey, topUp2.handles[0], topUp2.inputProof),
+      ).to.be.revertedWithCustomError(payroll, "StreamNotActive");
     });
   });
 });

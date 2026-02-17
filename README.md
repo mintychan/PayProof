@@ -4,6 +4,16 @@
 
 PayProof enables employers to stream encrypted salaries on-chain, employees to decrypt their earnings privately, and third-party verifiers to request income threshold proofs without ever learning the actual salary amounts. Built with fully homomorphic encryption (FHE) using Zama's fhEVM technology.
 
+## 🎥 Demo
+
+> **Live demo**: [Coming soon — pending Sepolia fhEVM coprocessor stability]
+>
+> Key flows to try:
+> 1. `/employer` — Create an encrypted payroll stream
+> 2. `/employee` — Decrypt salary and withdraw funds
+> 3. `/verify` — Request a privacy-preserving income attestation
+> 4. `/vesting` — Explore encrypted vesting schedules
+
 ## 🎯 Overview
 
 PayProof solves a critical privacy problem in blockchain-based payroll: how to prove income eligibility (for loans, rentals, etc.) without revealing your exact salary. Traditional blockchain transactions are public, making salary information visible to everyone. PayProof uses fully homomorphic encryption to keep salary data encrypted on-chain while still enabling:
@@ -15,6 +25,32 @@ PayProof solves a critical privacy problem in blockchain-based payroll: how to p
 
 ## 🏗️ Architecture
 
+```mermaid
+graph TD
+    E[Employer] -->|createStream / topUp| EP[EncryptedPayroll]
+    EP -->|confidentialTransfer| CETH[ConfidentialETH]
+    EP -->|mint NFT| EE[Employee]
+    EP -->|withdrawMax| CETH
+    CETH -->|unwrap| EE
+    EP -->|hook callback| IO[IncomeOracle]
+    V[Verifier] -->|attestMonthlyIncome| IO
+    IO -->|projectedIncome| EP
+    EP -.->|composability| VV[VestingVault]
+    CETH -.->|fund| VV
+    EP -->|events| SG[Subgraph Indexer]
+    IO -->|events| SG
+    EE -->|fheDecrypt| GW[fhEVM Gateway]
+    V -->|fheDecrypt| GW
+    E -->|fheEncrypt| GW
+
+    style EP fill:#1e40af,stroke:#3b82f6,color:#fff
+    style CETH fill:#065f46,stroke:#10b981,color:#fff
+    style IO fill:#7c3aed,stroke:#a78bfa,color:#fff
+    style VV fill:#92400e,stroke:#f59e0b,color:#fff
+    style GW fill:#831843,stroke:#ec4899,color:#fff
+    style SG fill:#374151,stroke:#9ca3af,color:#fff
+```
+
 ### Smart Contracts (Solidity + fhEVM)
 
 **EncryptedPayroll.sol** – Confidential lockup & streaming
@@ -23,6 +59,21 @@ PayProof solves a critical privacy problem in blockchain-based payroll: how to p
 - **Homomorphic balance math:** Per-second rates (`euint64`) accumulate into encrypted balances (`euint128`). Top-ups, withdrawals, and accruals all run inside fhEVM, keeping amounts shielded while still allowing deterministic balance queries.
 - **Hook-driven composability:** Streams can opt into encrypted callbacks (on withdraw/cancel) for allowlisted contracts such as the IncomeOracle. Hooks receive ciphertext handles, enabling integrations (staking, vaults, credit scoring) without leaking raw values.
 - **Access controls & settlement:** Employers control cancelability, transferability, hooks, and top-ups; employees (or authorized hooks) can withdraw. Withdrawals zero out balances without disrupting active streams, while cancelled streams settle once their final withdrawal completes so NFTs can be recycled safely.
+- **cETH settlement layer:** Funding and payouts run through a confidential ERC7984 token (`ConfidentialETH`) so every encrypted balance corresponds to real wrapped ETH. Employers wrap ETH→cETH, authorize the payroll contract as an operator, and each withdrawal performs an encrypted token transfer.
+
+**ConfidentialETH.sol** – ERC7984 wrapper for WETH
+
+- **Dual entry points:** Supports both `wrapNative` (direct ETH deposits) and ERC-20 WETH wrapping to mint encrypted balances with fhEVM-friendly 6-decimal precision.
+- **Operator aware:** Employers grant PayProof operator rights with expiries, letting `EncryptedPayroll.topUp` pull funding atomically during stream provisioning.
+- **Deterministic unwraps:** Employees can unwrap cETH back into WETH (and then ETH) via asynchronous decryption flows once their confidential withdrawals settle.
+
+**ConfidentialVestingVault.sol** – cETH-backed encrypted vesting schedules
+
+- **Allowlisted sponsors:** Admins gate who can create schedules, mirroring HR-approved employers.
+- **Private cliffs + unlocks:** Start time, cliff, duration, cancelability, and initial unlock BPS remain public while the amounts and released totals stay encrypted (`euint128`).
+- **NFT receipts:** Each schedule mints an ERC-721 token to the beneficiary. Transfers are blocked until the schedule has fully vested (unless revoked) so secondary markets can prove ownership.
+- **Cancelable/refundable:** Sponsors can mark schedules as cancelable. When revoked, vested-but-unpaid funds go to the beneficiary, the remainder refunds the sponsor, and both transfers emit new ciphertext handles.
+- **fhEVM integration:** Withdrawals, cancellations, and encrypted amount queries emit handles that the `/vesting` React dashboard can decrypt client-side with the fhEVM SDK.
 
 **IncomeOracle.sol** – Threshold attestations with encrypted deltas
 
@@ -38,6 +89,7 @@ PayProof solves a critical privacy problem in blockchain-based payroll: how to p
 - **`/employer`** - Create encrypted streams, view active streams, manage payroll
 - **`/employee`** - View encrypted streams, decrypt salary amounts, generate proofs
 - **`/verify`** - Submit encrypted thresholds, receive tiered attestations
+- **`/vesting`** - Explore cETH vesting schedules, batch-create cliffs, and withdraw after the cliff unlock under encryption
 
 **Tech Stack:**
 
@@ -138,7 +190,11 @@ cp contracts/.env.example contracts/.env
 # - NEXT_PUBLIC_PAYPROOF_PAYROLL_CONTRACT=0x6fa3a1adC06fefeA333A1ce82B4e36Fac539ed9D
 # - NEXT_PUBLIC_PAYPROOF_ORACLE_CONTRACT=0xFe74a9453f216433A2ad70e06a9D241B29077BB8
 # - NEXT_PUBLIC_PAYPROOF_SUBGRAPH_URL=https://api.studio.thegraph.com/query/1704881/pay-proof/v0.1.1
+# - NEXT_PUBLIC_PAYPROOF_CONFIDENTIAL_TOKEN=<DEPLOYED_CONFIDENTIALETH_ADDRESS>
+# - NEXT_PUBLIC_PAYPROOF_VESTING_CONTRACT=<DEPLOYED_CONFIDENTIAL_VESTING_VAULT_ADDRESS>
 # - Private keys for deployment (contracts/.env)
+# - CONFIDENTIAL_TOKEN_ADDRESS=<DEPLOYED_CONFIDENTIALETH_ADDRESS>
+# - UNDERLYING_WETH_ADDRESS=<NETWORK_WETH_ADDRESS>
 ```
 
 ### Running Locally
@@ -169,9 +225,11 @@ From the repo root:
 - `pnpm contracts:clean` – clear Hardhat artifacts/cache
 - `pnpm --filter @payproof/contracts exec -- hardhat run scripts/deployPayroll.ts --network sepolia` – deploy the latest `EncryptedPayroll`
 - `pnpm --filter @payproof/contracts exec -- hardhat run scripts/deployOracle.ts --network sepolia` – (re)deploy the oracle if needed
+- `pnpm --filter @payproof/contracts exec -- hardhat run scripts/deployConfidentialEth.ts --network sepolia` – deploy the cETH wrapper (requires `UNDERLYING_WETH_ADDRESS` in `contracts/.env`)
+- `pnpm --filter @payproof/contracts exec -- hardhat run scripts/deployVestingVault.ts --network sepolia` – deploy `ConfidentialVestingVault` pointing at the confidential token in `.env`
 - `pnpm --filter @payproof/contracts exec -- hardhat verify --network sepolia <CONTRACT_ADDRESS>` – submit verification to Etherscan (may require rerunning under Node 20 to avoid bytecode mismatches)
 
-Before deploying or verifying, populate `contracts/.env` with `SEPOLIA_RPC_URL`, `DEPLOYER_KEY`, and `ETHERSCAN_API_KEY`.
+Before deploying or verifying, populate `contracts/.env` with `SEPOLIA_RPC_URL`, `DEPLOYER_KEY`, `ETHERSCAN_API_KEY`, `UNDERLYING_WETH_ADDRESS`, and `CONFIDENTIAL_TOKEN_ADDRESS` (used when wiring `EncryptedPayroll`).
 
 ## 📖 User Flows
 
@@ -185,7 +243,8 @@ Before deploying or verifying, populate `contracts/.env` with `SEPOLIA_RPC_URL`,
 6. Click "Encrypt & Create Stream"
 7. Rate is encrypted client-side with fhEVM
 8. Transaction creates on-chain stream with encrypted rate
-9. View created streams in dashboard
+9. Top up by wrapping ETH → cETH (UI prompts you) so the payroll contract can pull fully encrypted funding
+10. View created streams in dashboard
 
 ### 👤 Employee: View & Decrypt Salary
 
@@ -196,7 +255,7 @@ Before deploying or verifying, populate `contracts/.env` with `SEPOLIA_RPC_URL`,
 5. Click "🔓 Decrypt Amount"
 6. Sign EIP-712 message to authorize decryption
 7. View decrypted salary rate (ETH/month)
-8. Only you and employer can decrypt this amount
+8. Only you and employer can decrypt this amount; confidential withdrawals arrive as cETH which you can unwrap back to ETH at any time
 
 ### 🔍 Verifier: Request Income Proof
 
@@ -212,6 +271,15 @@ Before deploying or verifying, populate `contracts/.env` with `SEPOLIA_RPC_URL`,
 10. Click "🔓 Decrypt Result"
 11. See threshold met status and tier (A/B/C)
 12. Never learn the exact salary amount
+
+### ⛰️ Vesting Vault: Employers & Beneficiaries
+
+1. Navigate to `/vesting` to see the encrypted vesting hero + dashboard.
+2. Employers connect wallets, wrap ETH → cETH, and encrypt lump-sum grants with fhEVM.
+3. Enter beneficiary, duration, cliff, and initial unlock BPS; submit to `ConfidentialVestingVault`.
+4. Use the batch creator to encrypt CSV rows or export a Safe Transaction Builder JSON for multi-sig review.
+5. Beneficiaries fetch schedules by ID, view sponsor/beneficiary metadata, and decrypt ciphertext handles locally.
+6. Once the cliff timestamp has passed they can withdraw to any address, receiving freshly encrypted payout handles on every settlement.
 
 ### Privacy Guarantees
 
@@ -300,6 +368,59 @@ Employer        FHE SDK        EncryptedPayroll       Employee      Hook / Oracl
 - Verifier flow: attestation form, threshold encryption, tier decryption
 
 **Note**: Wallet-connected paths are planned once fhEVM/wagmi mocking is in place
+
+## 🔐 Security Considerations
+
+### Access Control Model
+
+| Action | Employer | Employee | Hook | Admin | Verifier |
+|--------|----------|----------|------|-------|----------|
+| createStream | ✅ | | | | |
+| topUp | ✅ | | | | |
+| pauseStream | ✅ | | | | |
+| resumeStream | ✅ | | | | |
+| cancelStream | ✅ | | | | |
+| withdrawMax | ✅ (to employee only) | ✅ (to any) | ✅ (to employee only) | | |
+| configureStream | ✅ | | | | |
+| setStreamHook | ✅ | | | | |
+| allowHook | | | | ✅ | |
+| attestMonthlyIncome | | | | | ✅ |
+
+### FHE Permission Model
+
+- **Stream rate**: readable by employer + employee + contract
+- **Balance handles**: readable by employer + employee + hook (if set)
+- **Attestation results**: readable by verifier (msg.sender)
+- All ciphertexts stored as handles on-chain; decryption requires EIP-712 signature
+
+### Hook Allowlist Mechanism
+
+- Admin maintains a whitelist of approved hook contracts
+- Employers can only register allowlisted hooks per stream
+- Hooks receive encrypted handles on withdraw/cancel callbacks
+- ReentrancyGuard protects against callback-based attacks
+
+## ⛽ Gas Estimates
+
+| Operation | Approximate Gas | Notes |
+|-----------|----------------|-------|
+| createStream | ~350,000 | Includes FHE proof validation + NFT mint |
+| topUp | ~200,000 | FHE encrypted transfer |
+| syncStream | ~150,000 | FHE multiply + add |
+| withdrawMax | ~250,000 | FHE compute + confidential transfer |
+| cancelStream | ~180,000 | Plus hook callback if configured |
+| attestMonthlyIncome | ~400,000 | FHE comparisons + tier computation |
+| batchCreateStreams (5) | ~1,500,000 | ~300K per stream |
+
+> **Note**: Gas costs are approximate and vary with fhEVM coprocessor state. FHE operations are significantly more expensive than plaintext equivalents.
+
+## ⚠️ Known Limitations
+
+- **Async decryption latency**: On Sepolia testnet, fhEVM Gateway decryption takes 15-30 seconds. Production networks will have lower latency.
+- **E2E wallet tests**: Browser-based tests with real wallet signatures are pending fhEVM mocking infrastructure in Playwright.
+- **FHE computation overhead**: Encrypted arithmetic costs ~10-50x more gas than plaintext equivalents. Batch operations amortize this.
+- **Single-token support**: Currently only supports ConfidentialETH (cETH). Multi-token support planned for Phase 3.
+- **Stream key uniqueness**: One active stream per employer-employee pair. Use different addresses for multiple concurrent streams.
 
 ## 📐 Decryption Math
 

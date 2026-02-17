@@ -2,6 +2,8 @@
 
 import { useAccount, useConnect, useDisconnect } from "wagmi";
 import { useEffect, useState } from "react";
+import { logger } from "../lib/logger";
+import { SUPPORTED_CHAIN_ID } from "../lib/config";
 
 export function WalletConnect() {
   const [mounted, setMounted] = useState(false);
@@ -14,9 +16,9 @@ export function WalletConnect() {
   }, []);
 
   useEffect(() => {
-    if (isConnected && chain?.id !== 11155111) {
+    if (isConnected && chain?.id !== SUPPORTED_CHAIN_ID) {
       // Sepolia chain ID
-      console.warn("Please switch to Sepolia network");
+      logger.warn("Please switch to Sepolia network");
     }
   }, [isConnected, chain]);
 
@@ -32,7 +34,7 @@ export function WalletConnect() {
   }
 
   if (isConnected && address) {
-    const isWrongNetwork = chain?.id !== 11155111;
+    const isWrongNetwork = chain?.id !== SUPPORTED_CHAIN_ID;
 
     return (
       <div className="flex items-center gap-3">
@@ -69,7 +71,7 @@ export function WalletConnect() {
 
   if (!metaMaskConnector) {
     // Debug: show what connectors are available
-    console.log("Available connectors:", connectors.map(c => ({ id: c.id, name: c.name })));
+    logger.log("Available connectors:", connectors.map(c => ({ id: c.id, name: c.name })));
     return (
       <div className="text-sm text-slate-400">
         MetaMask not detected. Please install MetaMask extension.

@@ -16,6 +16,8 @@ type Stream @entity(immutable: false) {
   updatedAtTimestamp: BigInt!
   updatedTxHash: Bytes!
   events: [StreamEvent!]! @derivedFrom(field: "stream")
+  attestations: [Attestation!]! @derivedFrom(field: "stream")
+  payments: [PaymentRecord!]! @derivedFrom(field: "stream")
 }
 
 enum StreamStatus {
@@ -35,5 +37,60 @@ type StreamEvent @entity(immutable: true) {
   amountHandle: Bytes
   blockNumber: BigInt!
   timestamp: BigInt!
+  txHash: Bytes!
+}
+
+type Vesting @entity(immutable: false) {
+  id: Bytes!
+  sponsor: Bytes!
+  beneficiary: Bytes!
+  start: BigInt!
+  cliff: BigInt!
+  duration: BigInt!
+  initialUnlockBps: Int!
+  cancelable: Boolean!
+  revoked: Boolean!
+  revokedAt: BigInt!
+  totalAmountHandle: Bytes!
+  releasedHandle: Bytes!
+  createdAtBlock: BigInt!
+  createdAtTimestamp: BigInt!
+  createdTxHash: Bytes!
+  updatedAtBlock: BigInt!
+  updatedAtTimestamp: BigInt!
+  updatedTxHash: Bytes!
+  events: [VestingEvent!]! @derivedFrom(field: "vesting")
+}
+
+type VestingEvent @entity(immutable: true) {
+  id: Bytes!
+  vesting: Vesting!
+  eventType: String!
+  actor: Bytes
+  amountHandle: Bytes
+  blockNumber: BigInt!
+  timestamp: BigInt!
+  txHash: Bytes!
+}
+
+type Attestation @entity(immutable: true) {
+  id: Bytes!
+  stream: Stream!
+  employee: Bytes!
+  lookbackDays: BigInt!
+  meetsHandle: Bytes!
+  tierHandle: Bytes!
+  attestationId: Bytes!
+  blockNumber: BigInt!
+  timestamp: BigInt!
+  txHash: Bytes!
+}
+
+type PaymentRecord @entity(immutable: false) {
+  id: Bytes!
+  stream: Stream!
+  amountHandle: Bytes!
+  lastUpdated: BigInt!
+  blockNumber: BigInt!
   txHash: Bytes!
 }

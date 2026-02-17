@@ -65,7 +65,7 @@ export function Header() {
             <p className="text-xs text-slate-400">Privacy-preserving payroll</p>
           </div>
         </div>
-        <nav className="flex items-center gap-1">
+        <nav aria-label="Main navigation" className="flex items-center gap-1">
           {navItems.map((item) => (
             <a
               key={item.href}

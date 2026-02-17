@@ -1,6 +1,7 @@
 import { BrowserProvider, Contract, isHexString, zeroPadValue } from "ethers";
 import { ENCRYPTED_PAYROLL_ABI } from "./EncryptedPayrollABI";
 import { ERC721_ENUMERABLE_ABI } from "./ERC721EnumerableABI";
+import { logger } from "../logger";
 
 const CONTRACT_ADDRESS = process.env.NEXT_PUBLIC_PAYPROOF_PAYROLL_CONTRACT || "";
 const SUBGRAPH_URL = process.env.NEXT_PUBLIC_PAYPROOF_SUBGRAPH_URL?.trim();
@@ -102,6 +103,11 @@ export class EncryptedPayrollContract {
     return this.computeStreamKey(employer, employee);
   }
 
+  async fundingToken(): Promise<string> {
+    const contract = await this.getContract();
+    return await contract.fundingToken();
+  }
+
   /**
    * Create a new confidential stream and return the emitted identifiers.
    */
@@ -113,7 +119,7 @@ export class EncryptedPayrollContract {
 
     // Try to estimate gas to see if the transaction would fail
     try {
-      console.log("Calling createStream with params:", {
+      logger.log("Calling createStream with params:", {
         employee: params.employee,
         encryptedRatePerSecond: params.encryptedRatePerSecond,
         rateProof: params.rateProof?.substring(0, 100) + "...",
@@ -128,9 +134,9 @@ export class EncryptedPayrollContract {
         params.cadenceInSeconds,
         params.startTime || 0
       );
-      console.log("Estimated gas:", gasEstimate.toString());
+      logger.log("Estimated gas:", gasEstimate.toString());
     } catch (estimateError: any) {
-      console.error("Gas estimation failed:", estimateError);
+      logger.error("Gas estimation failed:", estimateError);
 
       // Try to decode custom error
       let decoded = null as null | { name: string; args: any[] };
@@ -173,38 +179,38 @@ export class EncryptedPayrollContract {
       throw new Error("Transaction receipt unavailable");
     }
 
-    console.log("Transaction receipt status:", receipt.status);
-    console.log("Transaction receipt:", receipt);
-    console.log("Receipt logs:", receipt.logs);
-    console.log("Receipt logs length:", receipt.logs.length);
+    logger.log("Transaction receipt status:", receipt.status);
+    logger.log("Transaction receipt:", receipt);
+    logger.log("Receipt logs:", receipt.logs);
+    logger.log("Receipt logs length:", receipt.logs.length);
 
     // Check transaction status
     if (receipt.status === 0) {
-      console.error("Transaction failed. Receipt:", receipt);
+      logger.error("Transaction failed. Receipt:", receipt);
       throw new Error("Transaction reverted. Check console for details.");
     }
 
     if (!receipt.logs || receipt.logs.length === 0) {
-      console.error("Transaction succeeded but has no logs. This might indicate:");
-      console.error("1. Function executed but didn't emit events");
-      console.error("2. Gas was insufficient to emit events");
-      console.error("3. Contract logic issue");
-      console.error("Full receipt:", JSON.stringify(receipt, null, 2));
+      logger.error("Transaction succeeded but has no logs. This might indicate:");
+      logger.error("1. Function executed but didn't emit events");
+      logger.error("2. Gas was insufficient to emit events");
+      logger.error("3. Contract logic issue");
+      logger.error("Full receipt:", JSON.stringify(receipt, null, 2));
     }
 
     const eventLog = receipt.logs.find((log: any) => {
       try {
         const parsed = contract.interface.parseLog(log);
-        console.log("Parsed log:", parsed);
+        logger.log("Parsed log:", parsed);
         return parsed?.name === "StreamCreated";
       } catch (e) {
-        console.log("Failed to parse log:", log, e);
+        logger.log("Failed to parse log:", log, e);
         return false;
       }
     });
 
     if (!eventLog) {
-      console.error("StreamCreated event not found in receipt. All logs:", receipt.logs);
+      logger.error("StreamCreated event not found in receipt. All logs:", receipt.logs);
       const etherscanUrl = `https://sepolia.etherscan.io/tx/${tx.hash}`;
       throw new Error(
         `StreamCreated event not found in receipt. The transaction was mined but didn't emit the expected event. ` +
@@ -235,7 +241,7 @@ export class EncryptedPayrollContract {
       const normalizedKey = this.normalizeStreamKey(streamKey);
 
       if (!normalizedKey) {
-        console.warn("Invalid stream key format; skipping fetch", streamKey);
+        logger.warn("Invalid stream key format; skipping fetch", streamKey);
         return null;
       }
 
@@ -274,7 +280,7 @@ export class EncryptedPayrollContract {
         withdrawnHandle,
       };
     } catch (error) {
-      console.error("Error fetching encrypted stream:", error);
+      logger.error("Error fetching encrypted stream:", error);
       return null;
     }
   }
@@ -328,7 +334,7 @@ export class EncryptedPayrollContract {
 
       return this.resolveStreams(normalized);
     } catch (error) {
-      console.warn("NFT enumeration failed; falling back to subgraph for employee streams", error);
+      logger.warn("NFT enumeration failed; falling back to subgraph for employee streams", error);
       const keys = await this.fetchStreamKeysFromSubgraph(address, "employee");
       return this.resolveStreams(keys);
     }
@@ -339,7 +345,7 @@ export class EncryptedPayrollContract {
     role: "employer" | "employee"
   ): Promise<string[]> {
     if (!SUBGRAPH_URL) {
-      console.warn("Subgraph URL not configured");
+      logger.warn("Subgraph URL not configured");
       return [];
     }
 
@@ -368,13 +374,13 @@ export class EncryptedPayrollContract {
       });
 
       if (!response.ok) {
-        console.error("Subgraph query failed", response.status, response.statusText);
+        logger.error("Subgraph query failed", response.status, response.statusText);
         return [];
       }
 
       const payload = await response.json();
       if (payload.errors) {
-        console.error("Subgraph returned errors", payload.errors);
+        logger.error("Subgraph returned errors", payload.errors);
         return [];
       }
 
@@ -383,7 +389,7 @@ export class EncryptedPayrollContract {
         .map((item) => this.normalizeStreamKey(item.id))
         .filter((key): key is string => Boolean(key));
     } catch (error) {
-      console.error("Unable to query subgraph", error);
+      logger.error("Unable to query subgraph", error);
       return [];
     }
   }

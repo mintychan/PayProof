@@ -1,14 +1,89 @@
 "use client";
 
+import { useState, useMemo, useCallback } from "react";
 import { useAccount } from "wagmi";
 import PayrollStreamForm from "../../components/PayrollStreamForm";
+import CSVBatchUpload from "../../components/CSVBatchUpload";
 import { WalletConnectPrompt } from "../../components/WalletConnect";
 import { useEncryptedStreams } from "../../hooks/useEncryptedStreams";
 import { StreamStatus } from "../../lib/contracts/encryptedPayrollContract";
+import StreamFilterBar, { StreamFilters, SortOption } from "../../components/StreamFilterBar";
+import StreamLabel from "../../components/StreamLabel";
+import { useStreamLabels } from "../../hooks/useStreamLabels";
+import { SkeletonCard } from "../../components/Skeleton";
 
 export default function EmployerPage() {
   const { address, isConnected } = useAccount();
   const { streams, loading } = useEncryptedStreams(address, "employer");
+  const { getLabel, setLabel } = useStreamLabels();
+
+  const [searchQuery, setSearchQuery] = useState("");
+  const [filters, setFilters] = useState<StreamFilters>({ status: "All" });
+  const [sortOption, setSortOption] = useState<SortOption>("newest");
+
+  const handleSearch = useCallback((query: string) => {
+    setSearchQuery(query);
+  }, []);
+
+  const handleFilterChange = useCallback((newFilters: StreamFilters) => {
+    setFilters(newFilters);
+  }, []);
+
+  const handleSortChange = useCallback((sort: SortOption) => {
+    setSortOption(sort);
+  }, []);
+
+  const filteredStreams = useMemo(() => {
+    let result = [...streams];
+
+    // Search filter
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      result = result.filter((stream) => {
+        const label = getLabel(stream.streamKey)?.toLowerCase() ?? "";
+        return (
+          stream.employee.toLowerCase().includes(q) ||
+          stream.employer.toLowerCase().includes(q) ||
+          stream.streamKey.toLowerCase().includes(q) ||
+          stream.streamId.toLowerCase().includes(q) ||
+          label.includes(q)
+        );
+      });
+    }
+
+    // Status filter
+    if (filters.status !== "All") {
+      const statusMap: Record<string, StreamStatus> = {
+        Active: StreamStatus.Active,
+        Paused: StreamStatus.Paused,
+        Cancelled: StreamStatus.Cancelled,
+        Settled: StreamStatus.Settled,
+      };
+      const targetStatus = statusMap[filters.status];
+      if (targetStatus !== undefined) {
+        result = result.filter((stream) => stream.status === targetStatus);
+      }
+    }
+
+    // Sort
+    switch (sortOption) {
+      case "newest":
+        result.sort((a, b) => b.startTime - a.startTime);
+        break;
+      case "oldest":
+        result.sort((a, b) => a.startTime - b.startTime);
+        break;
+      case "rate-high":
+        // Rate handles are encrypted, so sort by handle string as a best-effort fallback
+        result.sort((a, b) => (b.rateHandle > a.rateHandle ? 1 : -1));
+        break;
+      case "rate-low":
+        result.sort((a, b) => (a.rateHandle > b.rateHandle ? 1 : -1));
+        break;
+    }
+
+    return result;
+  }, [streams, searchQuery, filters, sortOption, getLabel]);
 
   if (!isConnected) {
     return <WalletConnectPrompt />;
@@ -48,6 +123,15 @@ export default function EmployerPage() {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
             </svg>
             Proof of Income
+          </a>
+          <a
+            href="/employer/analytics"
+            className="flex items-center gap-3 rounded-xl px-6 py-4 text-base font-semibold text-slate-400 transition hover:bg-slate-800/50 hover:text-slate-200"
+          >
+            <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+            </svg>
+            Analytics
           </a>
         </div>
       </div>
@@ -181,19 +265,35 @@ export default function EmployerPage() {
         </div>
       </div>
 
+      {/* Batch Import */}
+      <div className="rounded-3xl border border-white/5 bg-slate-900/40 p-6 backdrop-blur">
+        <CSVBatchUpload />
+      </div>
+
       {/* Created Streams List */}
       <div className="space-y-4">
         <h2 className="text-xl font-semibold text-white">Your Streams ({streams.length})</h2>
+
+        {/* Filter Bar */}
+        {streams.length > 0 && (
+          <StreamFilterBar
+            onSearch={handleSearch}
+            onFilterChange={handleFilterChange}
+            onSortChange={handleSortChange}
+            totalCount={streams.length}
+            filteredCount={filteredStreams.length}
+          />
+        )}
+
         {loading ? (
-          <div className="flex items-center justify-center rounded-3xl border border-white/5 bg-slate-900/40 p-12 backdrop-blur">
-            <div className="text-center">
-              <div className="mx-auto h-8 w-8 animate-spin rounded-full border-4 border-blue-500 border-t-transparent"></div>
-              <p className="mt-3 text-sm text-slate-400">Loading streams...</p>
-            </div>
-          </div>
-        ) : streams.length > 0 ? (
           <div className="grid gap-4">
-            {streams.map((stream) => {
+            <SkeletonCard />
+            <SkeletonCard />
+            <SkeletonCard />
+          </div>
+        ) : filteredStreams.length > 0 ? (
+          <div className="grid gap-4">
+            {filteredStreams.map((stream) => {
               const status = stream.status as StreamStatus;
               const statusBadge =
                 status === StreamStatus.Active
@@ -203,6 +303,8 @@ export default function EmployerPage() {
                   : status === StreamStatus.Settled
                   ? { label: "Settled", className: "bg-sky-500/20 text-sky-300" }
                   : { label: "Cancelled", className: "bg-slate-500/20 text-slate-400" };
+
+              const label = getLabel(stream.streamKey);
 
               return (
                 <a
@@ -224,6 +326,13 @@ export default function EmployerPage() {
                       <p className="mt-0.5 text-xs text-slate-500">
                         Stream #{stream.streamId.slice(0, 8)}
                       </p>
+                      <div className="mt-1">
+                        <StreamLabel
+                          streamKey={stream.streamKey}
+                          initialLabel={label}
+                          onLabelChange={(newLabel) => setLabel(stream.streamKey, newLabel)}
+                        />
+                      </div>
                     </div>
                   </div>
                   <span
@@ -260,6 +369,18 @@ export default function EmployerPage() {
                 </a>
               );
             })}
+          </div>
+        ) : streams.length > 0 ? (
+          <div className="flex items-center justify-center rounded-3xl border border-white/5 bg-slate-900/40 p-12 backdrop-blur">
+            <div className="text-center">
+              <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-slate-800/50">
+                <svg className="h-8 w-8 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                </svg>
+              </div>
+              <p className="text-slate-400">No streams match your search</p>
+              <p className="mt-1 text-sm text-slate-500">Try adjusting your filters or search query</p>
+            </div>
           </div>
         ) : (
           <div className="flex items-center justify-center rounded-3xl border border-white/5 bg-slate-900/40 p-12 backdrop-blur">
