@@ -7,6 +7,7 @@ import CSVBatchUpload from "../../components/CSVBatchUpload";
 import { WalletConnectPrompt } from "../../components/WalletConnect";
 import { useEncryptedStreams } from "../../hooks/useEncryptedStreams";
 import { StreamStatus } from "../../lib/contracts/encryptedPayrollContract";
+import { TOKEN_CONFIG, SupportedToken } from "../../lib/config";
 import StreamFilterBar, { StreamFilters, SortOption } from "../../components/StreamFilterBar";
 import StreamLabel from "../../components/StreamLabel";
 import { useStreamLabels } from "../../hooks/useStreamLabels";
@@ -335,11 +336,30 @@ export default function EmployerPage() {
                       </div>
                     </div>
                   </div>
-                  <span
-                    className={`rounded-full px-3 py-1 text-xs font-medium ${statusBadge.className}`}
-                  >
-                    {statusBadge.label}
-                  </span>
+                  <div className="flex items-center gap-2">
+                    {/* Token badge — defaults to cETH; ready for per-stream token data */}
+                    {(() => {
+                      const token: SupportedToken = "cETH";
+                      const tc = TOKEN_CONFIG[token];
+                      return (
+                        <span
+                          className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium"
+                          style={{ backgroundColor: `${tc.color}20`, color: tc.color }}
+                        >
+                          <span
+                            className="inline-block h-1.5 w-1.5 rounded-full"
+                            style={{ backgroundColor: tc.color }}
+                          />
+                          {tc.symbol}
+                        </span>
+                      );
+                    })()}
+                    <span
+                      className={`rounded-full px-3 py-1 text-xs font-medium ${statusBadge.className}`}
+                    >
+                      {statusBadge.label}
+                    </span>
+                  </div>
                 </div>
                 <div className="grid gap-3 sm:grid-cols-2">
                   <div className="rounded-2xl border border-white/5 bg-slate-950/40 px-4 py-3">

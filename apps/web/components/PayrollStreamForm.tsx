@@ -7,7 +7,7 @@ import CipherBadge from "./CipherBadge";
 import { encryptedPayrollContract, CreateStreamResult } from "../lib/contracts/encryptedPayrollContract";
 import { parseUnits, ethers } from "ethers";
 import { logger } from "../lib/logger";
-import { SUPPORTED_CHAIN_ID, CONFIDENTIAL_DECIMALS } from "../lib/config";
+import { SUPPORTED_CHAIN_ID, CONFIDENTIAL_DECIMALS, TOKEN_CONFIG, SupportedToken } from "../lib/config";
 import { useToast } from "../hooks/useToast";
 
 const CADENCE_OPTIONS = [
@@ -21,6 +21,7 @@ export default function PayrollStreamForm() {
   const { status: fhevmStatus, error: fhevmError, instance } = useFhevmContext();
   const { toast } = useToast();
   const [employeeAddress, setEmployeeAddress] = useState<string>("");
+  const [selectedToken, setSelectedToken] = useState<SupportedToken>("cETH");
   const [rate, setRate] = useState<string>("");
   const [cadence, setCadence] = useState<number>(CADENCE_OPTIONS[0].seconds);
   const [encryptionPreview, setEncryptionPreview] = useState<{ handle: string; proof: string; summary: string } | null>(null);
@@ -43,6 +44,8 @@ export default function PayrollStreamForm() {
   const encryptionReady = useMemo(() => {
     return ready && isCorrectNetwork && Boolean(employerAddress && employeeAddress && rate && Number(rate) > 0);
   }, [ready, isCorrectNetwork, employerAddress, employeeAddress, rate]);
+
+  const tokenConfig = TOKEN_CONFIG[selectedToken];
 
   const payrollContract = process.env.NEXT_PUBLIC_PAYPROOF_PAYROLL_CONTRACT?.trim() || "0xaAaAaAaaAaAaAaaAaAAAAAAAAaaaAaAaAaaAaaAa";
 
@@ -79,16 +82,16 @@ export default function PayrollStreamForm() {
       logger.log("Employer:", employerAddress);
       logger.log("Employee:", employeeAddress);
 
-      // Convert rate per month (entered in ETH) to confidential micro-units (6 decimals)
-      const ratePerMonth = parseUnits(rate, CONFIDENTIAL_DECIMALS);
+      // Convert rate per month to confidential micro-units using the selected token's decimals
+      const ratePerMonth = parseUnits(rate, tokenConfig.decimals);
       const ratePerSecond = ratePerMonth / BigInt(30 * 24 * 60 * 60);
 
-      logger.log("Rate per month (cETH units):", ratePerMonth.toString());
-      logger.log("Rate per second (cETH units):", ratePerSecond.toString());
+      logger.log(`Rate per month (${tokenConfig.symbol} units):`, ratePerMonth.toString());
+      logger.log(`Rate per second (${tokenConfig.symbol} units):`, ratePerSecond.toString());
       
       // Ensure rate is not 0
       if (ratePerSecond === BigInt(0)) {
-        throw new Error("Rate per second is 0. Please use a higher monthly rate (at least 1 micro-cETH per second)");
+        throw new Error(`Rate per second is 0. Please use a higher monthly rate (at least 1 micro-${tokenConfig.symbol} per second)`);
       }
 
       if (!instance) {
@@ -144,13 +147,13 @@ export default function PayrollStreamForm() {
 
       setResult({
         ...creation,
-        message: `Stream created successfully! Streaming ${rate} ETH/month to ${employeeAddress.slice(0, 6)}...${employeeAddress.slice(-4)}`,
+        message: `Stream created successfully! Streaming ${rate} ${tokenConfig.symbol}/month to ${employeeAddress.slice(0, 6)}...${employeeAddress.slice(-4)}`,
       });
 
       toast({
         type: "success",
         title: "Stream Created",
-        message: `Streaming ${rate} ETH/month to ${employeeAddress.slice(0, 6)}...${employeeAddress.slice(-4)}`,
+        message: `Streaming ${rate} ${tokenConfig.symbol}/month to ${employeeAddress.slice(0, 6)}...${employeeAddress.slice(-4)}`,
       });
 
       // Reset form
@@ -207,22 +210,43 @@ export default function PayrollStreamForm() {
         />
         <span id="employee-desc" className="sr-only">Enter the Ethereum address of the employee who will receive the stream</span>
       </label>
+      <label className="grid gap-1 text-sm">
+        <span className="text-slate-300">Token</span>
+        <div className="relative">
+          <select
+            className="w-full appearance-none rounded-2xl border border-slate-800 bg-slate-950/80 px-4 py-3 pl-10 text-slate-100 focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/30"
+            value={selectedToken}
+            onChange={(event) => setSelectedToken(event.target.value as SupportedToken)}
+            name="token"
+          >
+            {(Object.keys(TOKEN_CONFIG) as SupportedToken[]).map((token) => (
+              <option key={token} value={token}>
+                {token} ({TOKEN_CONFIG[token].name})
+              </option>
+            ))}
+          </select>
+          <span
+            className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 inline-block h-3 w-3 rounded-full"
+            style={{ backgroundColor: tokenConfig.color }}
+          />
+        </div>
+      </label>
       <div className="grid gap-4 md:grid-cols-2">
         <label className="grid gap-1 text-sm">
-          <span className="text-slate-300">Stream rate (ETH per month)</span>
+          <span className="text-slate-300">Stream rate ({tokenConfig.symbol} per month)</span>
           <input
             className="rounded-2xl border border-slate-800 bg-slate-950/80 px-4 py-3 text-slate-100 placeholder:text-slate-500 focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/30"
             type="number"
             min="0"
             step="any"
-            placeholder="0.5"
+            placeholder={selectedToken === "cUSDC" ? "100" : "0.5"}
             value={rate}
             onChange={(event) => setRate(event.target.value)}
             required
             name="rate"
             aria-describedby="rate-desc"
           />
-          <span id="rate-desc" className="sr-only">Monthly payment rate in ETH that will be streamed to the employee</span>
+          <span id="rate-desc" className="sr-only">Monthly payment rate in {tokenConfig.symbol} that will be streamed to the employee</span>
         </label>
         <label className="grid gap-1 text-sm">
           <span className="text-slate-300">Cadence</span>

@@ -1,0 +1,70 @@
+import { BrowserProvider, Contract, parseUnits } from "ethers";
+import { CONFIDENTIAL_USDC_ABI } from "./ConfidentialUsdcABI";
+
+export class ConfidentialUsdcContract {
+  private readonly contractAddress: string;
+
+  constructor(address: string) {
+    if (!address) {
+      throw new Error("ConfidentialUSDC address is required");
+    }
+    this.contractAddress = address;
+  }
+
+  private getProvider(): BrowserProvider {
+    if (typeof window === "undefined" || !(window as any).ethereum) {
+      throw new Error("MetaMask not detected");
+    }
+    return new BrowserProvider((window as any).ethereum);
+  }
+
+  private async getContract(withSigner = false) {
+    const provider = this.getProvider();
+    if (withSigner) {
+      const signer = await provider.getSigner();
+      return new Contract(this.contractAddress, CONFIDENTIAL_USDC_ABI, signer);
+    }
+    return new Contract(this.contractAddress, CONFIDENTIAL_USDC_ABI, provider);
+  }
+
+  private async getHolderAddress(): Promise<string> {
+    const provider = this.getProvider();
+    const signer = await provider.getSigner();
+    return signer.address;
+  }
+
+  /**
+   * Wrap underlying USDC into confidential cUSDC.
+   * The caller must have already approved this contract to spend `amountUsdc` of USDC.
+   */
+  async wrap(amountUsdc: string, recipient: string, underlyingDecimals = 6): Promise<string> {
+    if (!amountUsdc || Number(amountUsdc) <= 0) {
+      throw new Error("Wrap amount must be greater than zero");
+    }
+    if (!recipient) {
+      throw new Error("Recipient address missing for wrap");
+    }
+    const contract = await this.getContract(true);
+    const value = parseUnits(amountUsdc, underlyingDecimals);
+    const tx = await contract.wrap(value, recipient, {
+      gasLimit: 2_000_000n,
+    });
+    const receipt = await tx.wait();
+    return receipt?.hash ?? tx.hash;
+  }
+
+  async ensureOperator(payrollAddress: string, durationSeconds = 365 * 24 * 60 * 60): Promise<void> {
+    if (!payrollAddress) {
+      throw new Error("Payroll address missing for operator authorization");
+    }
+    const holder = await this.getHolderAddress();
+    const contract = await this.getContract(true);
+    const isAlreadyOperator = await contract.isOperator(holder, payrollAddress);
+    if (isAlreadyOperator) {
+      return;
+    }
+    const expiry = Math.floor(Date.now() / 1000) + durationSeconds;
+    const tx = await contract.setOperator(payrollAddress, expiry);
+    await tx.wait();
+  }
+}

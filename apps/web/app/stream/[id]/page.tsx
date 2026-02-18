@@ -14,7 +14,7 @@ import StreamingCounter from "../../../components/StreamingCounter";
 import StreamShapeIndicator from "../../../components/StreamShapeIndicator";
 import { formatUnits, parseUnits, ethers } from "ethers";
 import { logger } from "../../../lib/logger";
-import { CONFIDENTIAL_DECIMALS } from "../../../lib/config";
+import { CONFIDENTIAL_DECIMALS, TOKEN_CONFIG, SupportedToken } from "../../../lib/config";
 import StreamTimeline, { StreamEvent } from "../../../components/StreamTimeline";
 import TransactionHistory, { TxRecord } from "../../../components/TransactionHistory";
 import { SkeletonStreamDetail } from "../../../components/Skeleton";
@@ -98,6 +98,20 @@ const [fundingTokenAddress, setFundingTokenAddress] = useState<string | null>(nu
     return addr;
   }, [fundingTokenAddress]);
 
+  // Determine which token this stream uses based on the funding token address
+  const streamToken: SupportedToken = useMemo(() => {
+    if (!fundingTokenAddress) return "cETH";
+    const lower = fundingTokenAddress.toLowerCase();
+    for (const [key, config] of Object.entries(TOKEN_CONFIG)) {
+      if (config.contractAddress && config.contractAddress.toLowerCase() === lower) {
+        return key as SupportedToken;
+      }
+    }
+    return "cETH";
+  }, [fundingTokenAddress]);
+
+  const tokenConfig = TOKEN_CONFIG[streamToken];
+
   useEffect(() => {
     let cancelled = false;
     Promise.resolve(params).then((resolved) => {
@@ -175,14 +189,14 @@ const [fundingTokenAddress, setFundingTokenAddress] = useState<string | null>(nu
     );
   }
 
-  const streamedDisplay = `ETH ${formatEthDisplay(decryptedBalances?.streamed ?? null, 6)}`;
-  const withdrawnDisplay = `ETH ${formatEthDisplay(decryptedBalances?.withdrawn ?? null, 6)}`;
+  const streamedDisplay = `${tokenConfig.symbol} ${formatEthDisplay(decryptedBalances?.streamed ?? null, 6)}`;
+  const withdrawnDisplay = `${tokenConfig.symbol} ${formatEthDisplay(decryptedBalances?.withdrawn ?? null, 6)}`;
   const availableDisplay =
     decryptedBalances?.available !== null && decryptedBalances?.available !== undefined
-      ? `ETH ${formatEthDisplay(decryptedBalances?.available ?? null, 6)}`
+      ? `${tokenConfig.symbol} ${formatEthDisplay(decryptedBalances?.available ?? null, 6)}`
       : "Pending";
-  const debtDisplay = `ETH ${formatEthDisplay(decryptedBalances?.debt ?? null, 6)}`;
-  const bufferedDisplay = `ETH ${formatEthDisplay(decryptedBalances?.buffered ?? null, 6)}`;
+  const debtDisplay = `${tokenConfig.symbol} ${formatEthDisplay(decryptedBalances?.debt ?? null, 6)}`;
+  const bufferedDisplay = `${tokenConfig.symbol} ${formatEthDisplay(decryptedBalances?.buffered ?? null, 6)}`;
 
   const isAuthorized =
     address?.toLowerCase() === stream.employer.toLowerCase() ||
@@ -421,11 +435,11 @@ const [fundingTokenAddress, setFundingTokenAddress] = useState<string | null>(nu
         throw new Error("Funding token is not available");
       }
 
-      setActionMessage("Wrapping ETH into confidential cETH…");
+      setActionMessage(`Wrapping ${tokenConfig.underlyingSymbol} into confidential ${tokenConfig.symbol}...`);
       const confidentialToken = new ConfidentialEthContract(tokenAddress);
       await confidentialToken.wrapNative(topUpAmount, address);
 
-      setActionMessage("Authorising payroll contract to move your cETH…");
+      setActionMessage(`Authorising payroll contract to move your ${tokenConfig.symbol}...`);
       await confidentialToken.ensureOperator(payrollContractAddress);
 
       const amountWei = parseUnits(topUpAmount, CONFIDENTIAL_DECIMALS);
@@ -559,7 +573,19 @@ const [fundingTokenAddress, setFundingTokenAddress] = useState<string | null>(nu
           </svg>
         </a>
         <div>
-          <h1 className="text-2xl font-semibold text-white">Stream #{stream.streamId.slice(0, 8)}...</h1>
+          <div className="flex items-center gap-3">
+            <h1 className="text-2xl font-semibold text-white">Stream #{stream.streamId.slice(0, 8)}...</h1>
+            <span
+              className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium"
+              style={{ backgroundColor: `${tokenConfig.color}20`, color: tokenConfig.color }}
+            >
+              <span
+                className="inline-block h-2 w-2 rounded-full"
+                style={{ backgroundColor: tokenConfig.color }}
+              />
+              {tokenConfig.symbol}
+            </span>
+          </div>
           <div className="mt-1">
             <StreamLabel
               streamKey={stream.streamKey}
@@ -631,7 +657,7 @@ const [fundingTokenAddress, setFundingTokenAddress] = useState<string | null>(nu
                       {decryptedRate ? `${parseFloat(decryptedRate).toFixed(6)}` : '0.000000'}
                     </div>
                     <p className="mt-2 text-sm text-slate-400">
-                      {decryptedRate ? `${parseFloat(decryptedRate).toFixed(6)} ETH / Month` : 'ETH 0.000 / Month'}
+                      {decryptedRate ? `${parseFloat(decryptedRate).toFixed(6)} ${tokenConfig.symbol} / Month` : `${tokenConfig.symbol} 0.000 / Month`}
                     </p>
                   </div>
                 )}
@@ -787,7 +813,7 @@ const [fundingTokenAddress, setFundingTokenAddress] = useState<string | null>(nu
                 <div>
                   <p className="text-xs text-slate-500">Rate/Month</p>
                   <p className="mt-1 text-sm font-medium text-white">
-                    {decryptedRate ? `${parseFloat(decryptedRate).toFixed(4)} ETH` : '🔒 Encrypted'}
+                    {decryptedRate ? `${parseFloat(decryptedRate).toFixed(4)} ${tokenConfig.symbol}` : '🔒 Encrypted'}
                   </p>
                 </div>
               </div>
@@ -922,7 +948,7 @@ const [fundingTokenAddress, setFundingTokenAddress] = useState<string | null>(nu
               </div>
             )}
             <div className="space-y-2">
-              <label className="text-xs font-medium text-slate-300">Top up amount (ETH)</label>
+              <label className="text-xs font-medium text-slate-300">Top up amount ({tokenConfig.underlyingSymbol})</label>
               <div className="flex flex-col gap-2 sm:flex-row">
                 <input
                   className="flex-1 rounded-xl border border-slate-800 bg-slate-950/80 px-4 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/30"
@@ -999,10 +1025,10 @@ const [fundingTokenAddress, setFundingTokenAddress] = useState<string | null>(nu
                 <h4 className="text-sm font-semibold text-emerald-200">Decrypted Amount</h4>
               </div>
               <p className="text-2xl font-bold text-emerald-300 mb-2">
-                {parseFloat(decryptedRate).toFixed(6)} ETH/month
+                {parseFloat(decryptedRate).toFixed(6)} {tokenConfig.symbol}/month
               </p>
               <p className="text-xs text-emerald-400/80">
-                ≈ {(parseFloat(decryptedRate) / 30).toFixed(8)} ETH/day
+                ≈ {(parseFloat(decryptedRate) / 30).toFixed(8)} {tokenConfig.symbol}/day
               </p>
             </div>
           )}
