@@ -8,10 +8,6 @@ import CipherBadge from "../../../components/CipherBadge";
 import { VestingCreateForm } from "../../../components/vesting/VestingCreateForm";
 import { VestingBatchCreator } from "../../../components/vesting/VestingBatchCreator";
 import { VestingWithdrawCard } from "../../../components/vesting/VestingWithdrawCard";
-import { parseUnits } from "ethers";
-import { useFhevmHelpers } from "../../../hooks/useFhevmHelpers";
-
-const CONFIDENTIAL_DECIMALS = 6;
 
 export function VestingDashboard() {
   const { address } = useAccount();
@@ -19,20 +15,8 @@ export function VestingDashboard() {
   const [vestingIdInput, setVestingIdInput] = useState<string>("");
   const [schedule, setSchedule] = useState<any | null>(null);
   const [handles, setHandles] = useState<{ total: string; released: string } | null>(null);
-  const [createLoading, setCreateLoading] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  const { encryptAmount64 } = useFhevmHelpers();
-
-  const [createForm, setCreateForm] = useState({
-    beneficiary: "",
-    amount: "",
-    durationDays: 30,
-    cliffDays: 0,
-    initialUnlockBps: 0,
-    cancelable: true,
-  });
 
   const ready = useMemo(() => fhevmStatus === "ready" && !!address, [fhevmStatus, address]);
   const fheErrorMessage = useMemo(() => {
@@ -67,48 +51,6 @@ export function VestingDashboard() {
     }
   };
 
-  const handleCreate = async () => {
-    setError(null);
-    if (!ready) {
-      setError("Connect wallet and wait for fhEVM");
-      return;
-    }
-    if (!createForm.beneficiary || createForm.beneficiary.length !== 42 || !createForm.beneficiary.startsWith("0x")) {
-      setError("Enter a valid beneficiary address");
-      return;
-    }
-    if (!createForm.amount || Number(createForm.amount) <= 0) {
-      setError("Enter a positive amount");
-      return;
-    }
-    try {
-      setCreateLoading(true);
-      const amount64 = parseUnits(createForm.amount, CONFIDENTIAL_DECIMALS);
-      const vestingAddress = confidentialVestingContract.getAddress();
-      const encrypted = await encryptAmount64(vestingAddress, amount64);
-      const start = Math.floor(Date.now() / 1000);
-      const cliff = start + createForm.cliffDays * 86400;
-      const duration = createForm.durationDays * 86400;
-
-      const tx = await confidentialVestingContract.createVesting({
-        beneficiary: createForm.beneficiary,
-        start,
-        cliff,
-        duration,
-        initialUnlockBps: createForm.initialUnlockBps,
-        cancelable: createForm.cancelable,
-        encryptedAmount: encrypted.handle,
-        amountProof: encrypted.proof,
-      });
-
-      setVestingIdInput(tx.receipt?.logs?.[0]?.topics?.[1] ? BigInt(tx.receipt.logs[0].topics[1]).toString() : "");
-    } catch (e: any) {
-      setError(e?.message || "Failed to create vesting");
-    } finally {
-      setCreateLoading(false);
-    }
-  };
-
   return (
     <div className="space-y-6 rounded-3xl border border-white/5 bg-slate-900/40 p-6">
       <div className="flex items-center justify-between">
@@ -133,75 +75,6 @@ export function VestingDashboard() {
         >
           {loading ? "Loading…" : "Fetch"}
         </button>
-      </div>
-
-      <div className="rounded-2xl border border-white/5 bg-slate-950/60 p-4 space-y-3">
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="text-xs uppercase text-slate-500">Create test vesting</p>
-            <p className="text-sm text-slate-300">Encrypt locally, then send to the vault (cETH funding required).</p>
-          </div>
-          <button
-            onClick={handleCreate}
-            disabled={!ready || createLoading}
-            className="rounded-xl bg-emerald-600 px-4 py-2 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:bg-slate-700"
-          >
-            {createLoading ? "Creating…" : "Create"}
-          </button>
-        </div>
-        <div className="grid gap-3 md:grid-cols-2">
-          <label className="grid gap-1 text-sm">
-            <span className="text-slate-300">Beneficiary</span>
-            <input
-              className="rounded-xl border border-slate-800 bg-slate-950/80 px-3 py-2 text-slate-100"
-              value={createForm.beneficiary}
-              onChange={(e) => setCreateForm((f) => ({ ...f, beneficiary: e.target.value }))}
-            />
-          </label>
-          <label className="grid gap-1 text-sm">
-            <span className="text-slate-300">Amount (cETH, 6 decimals)</span>
-            <input
-              className="rounded-xl border border-slate-800 bg-slate-950/80 px-3 py-2 text-slate-100"
-              value={createForm.amount}
-              onChange={(e) => setCreateForm((f) => ({ ...f, amount: e.target.value }))}
-            />
-          </label>
-          <label className="grid gap-1 text-sm">
-            <span className="text-slate-300">Duration (days)</span>
-            <input
-              type="number"
-              className="rounded-xl border border-slate-800 bg-slate-950/80 px-3 py-2 text-slate-100"
-              value={createForm.durationDays}
-              onChange={(e) => setCreateForm((f) => ({ ...f, durationDays: Number(e.target.value) }))}
-            />
-          </label>
-          <label className="grid gap-1 text-sm">
-            <span className="text-slate-300">Cliff (days)</span>
-            <input
-              type="number"
-              className="rounded-xl border border-slate-800 bg-slate-950/80 px-3 py-2 text-slate-100"
-              value={createForm.cliffDays}
-              onChange={(e) => setCreateForm((f) => ({ ...f, cliffDays: Number(e.target.value) }))}
-            />
-          </label>
-          <label className="grid gap-1 text-sm">
-            <span className="text-slate-300">Initial unlock (BPS)</span>
-            <input
-              type="number"
-              className="rounded-xl border border-slate-800 bg-slate-950/80 px-3 py-2 text-slate-100"
-              value={createForm.initialUnlockBps}
-              onChange={(e) => setCreateForm((f) => ({ ...f, initialUnlockBps: Number(e.target.value) }))}
-            />
-          </label>
-          <label className="flex items-center gap-2 text-sm text-slate-300">
-            <input
-              type="checkbox"
-              checked={createForm.cancelable}
-              onChange={(e) => setCreateForm((f) => ({ ...f, cancelable: e.target.checked }))}
-            />
-            Cancelable
-          </label>
-        </div>
       </div>
 
       {fheErrorMessage && <p className="text-sm text-amber-400">{fheErrorMessage}</p>}
