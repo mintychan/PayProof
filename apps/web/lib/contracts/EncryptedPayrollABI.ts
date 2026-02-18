@@ -176,12 +176,22 @@ export const ENCRYPTED_PAYROLL_ABI = [
   },
   {
     "inputs": [],
+    "name": "StreamNotActive",
+    "type": "error"
+  },
+  {
+    "inputs": [],
     "name": "StreamNotFound",
     "type": "error"
   },
   {
     "inputs": [],
     "name": "StreamNotTransferable",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "ReentrancyGuardReentrantCall",
     "type": "error"
   },
   {
