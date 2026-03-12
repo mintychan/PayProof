@@ -12,7 +12,10 @@ const config: PlaywrightTestConfig = {
     command: `pnpm dev --port ${PORT}`,
     port: PORT,
     reuseExistingServer: !process.env.CI,
-    timeout: 120_000
+    timeout: 120_000,
+    env: {
+      NEXT_PUBLIC_E2E_TEST: "1",
+    },
   },
   use: {
     baseURL: `http://127.0.0.1:${PORT}`,
