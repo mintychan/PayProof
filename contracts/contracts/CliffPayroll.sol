@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import {SepoliaConfig} from "@fhevm/solidity/config/ZamaConfig.sol";
+import {ZamaEthereumConfig} from "@fhevm/solidity/config/ZamaConfig.sol";
 import {EncryptedPayroll} from "./EncryptedPayroll.sol";
 
 /// @title CliffPayroll
@@ -16,7 +16,7 @@ import {EncryptedPayroll} from "./EncryptedPayroll.sol";
 ///      these calls. Instead, CliffPayroll acts as a companion registry that tracks cliff
 ///      metadata. Integrators (frontends, bots, other contracts) query isCliffReached()
 ///      before invoking withdrawMax on the payroll contract directly.
-contract CliffPayroll is SepoliaConfig {
+contract CliffPayroll is ZamaEthereumConfig {
     EncryptedPayroll public immutable payroll;
 
     /// @notice Cliff configuration for a single stream.

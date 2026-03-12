@@ -192,8 +192,9 @@ abstract contract ERC7984 is IERC7984 {
      * @dev Discloses an encrypted amount `encryptedAmount` publicly via an {IERC7984-AmountDisclosed}
      * event. The caller and this contract must be authorized to use the encrypted amount on the ACL.
      *
-     * NOTE: This is an asynchronous operation where the actual decryption happens off-chain and
-     * {finalizeDiscloseEncryptedAmount} is called with the result.
+     * NOTE: This is an asynchronous operation. The encrypted amount is marked as publicly decryptable,
+     * then an off-chain relayer calls `publicDecrypt` and submits the result back to
+     * {finalizeDiscloseEncryptedAmount}.
      */
     function discloseEncryptedAmount(euint64 encryptedAmount) public virtual {
         require(
@@ -201,29 +202,24 @@ abstract contract ERC7984 is IERC7984 {
             ERC7984UnauthorizedUseOfEncryptedAmount(encryptedAmount, msg.sender)
         );
 
-        bytes32[] memory cts = new bytes32[](1);
-        cts[0] = euint64.unwrap(encryptedAmount);
-        FHE.requestDecryption(cts, this.finalizeDiscloseEncryptedAmount.selector);
+        FHE.makePubliclyDecryptable(encryptedAmount);
     }
 
     /**
-     * @dev Finalizes a disclose encrypted amount request.
-     * For gas saving purposes, the `requestId` might not be related to a
-     * {discloseEncryptedAmount} request. As a result, the current {finalizeDiscloseEncryptedAmount}
-     * function might emit a disclosed amount related to another decryption request context.
-     * In this case it would only display public information
-     * since the handle would have already been allowed for public decryption through a previous
-     * `FHE.requestDecryption` call.
-     * The downside of this behavior is that a {finalizeDiscloseEncryptedAmount} watcher might observe
-     * unexpected `AmountDisclosed` events.
+     * @dev Finalizes a disclose encrypted amount request by verifying a decryption proof
+     * and emitting the cleartext value.
+     *
+     * @param handlesList The list of FHE handles that were decrypted.
+     * @param cleartexts The ABI-encoded cleartext values.
+     * @param decryptionProof The KMS decryption proof.
      */
     function finalizeDiscloseEncryptedAmount(
-        uint256 requestId,
+        bytes32[] calldata handlesList,
         bytes calldata cleartexts,
         bytes calldata decryptionProof
     ) public virtual {
-        FHE.checkSignatures(requestId, cleartexts, decryptionProof);
-        euint64 requestHandle = euint64.wrap(FHE.loadRequestedHandles(requestId)[0]);
+        FHE.checkSignatures(handlesList, cleartexts, decryptionProof);
+        euint64 requestHandle = euint64.wrap(handlesList[0]);
         emit AmountDisclosed(requestHandle, abi.decode(cleartexts, (uint64)));
     }
 

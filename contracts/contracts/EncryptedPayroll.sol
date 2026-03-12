@@ -2,7 +2,7 @@
 pragma solidity ^0.8.24;
 
 import {FHE, ebool, euint64, euint128, externalEuint64, externalEuint128} from "@fhevm/solidity/lib/FHE.sol";
-import {SepoliaConfig} from "@fhevm/solidity/config/ZamaConfig.sol";
+import {ZamaEthereumConfig} from "@fhevm/solidity/config/ZamaConfig.sol";
 import {ERC721} from "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import {ERC721Enumerable} from "@openzeppelin/contracts/token/ERC721/extensions/ERC721Enumerable.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
@@ -14,7 +14,7 @@ import {IERC7984Receiver} from "../lib/confidential/interfaces/IERC7984Receiver.
 /// @title EncryptedPayroll
 /// @notice Confidential payroll stream manager built on Zama's fhEVM.
 /// @dev Refactored to mirror Sablier-style lockup semantics while keeping stream balances encrypted.
-contract EncryptedPayroll is SepoliaConfig, ERC721Enumerable, IERC7984Receiver, ReentrancyGuard {
+contract EncryptedPayroll is ZamaEthereumConfig, ERC721Enumerable, IERC7984Receiver, ReentrancyGuard {
     enum StreamStatus {
         None,
         Active,

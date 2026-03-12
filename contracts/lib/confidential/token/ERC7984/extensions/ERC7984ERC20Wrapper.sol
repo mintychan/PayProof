@@ -24,8 +24,8 @@ abstract contract ERC7984ERC20Wrapper is ERC7984, IERC1363Receiver {
     uint8 private immutable _decimals;
     uint256 private immutable _rate;
 
-    /// @dev Mapping from gateway decryption request ID to the address that will receive the tokens
-    mapping(uint256 decryptionRequest => address) private _receivers;
+    /// @dev Mapping from FHE handle to the address that will receive the unwrapped tokens
+    mapping(bytes32 handle => address) private _receivers;
 
     constructor(IERC20 underlying_) {
         _underlying = underlying_;
@@ -125,17 +125,22 @@ abstract contract ERC7984ERC20Wrapper is ERC7984, IERC1363Receiver {
     }
 
     /**
-     * @dev Fills an unwrap request for a given request id related to a decrypted unwrap amount.
+     * @dev Fills an unwrap request by verifying a decryption proof and transferring the underlying tokens.
+     *
+     * @param handlesList The list of FHE handles that were decrypted.
+     * @param cleartexts The ABI-encoded cleartext values.
+     * @param decryptionProof The KMS decryption proof.
      */
     function finalizeUnwrap(
-        uint256 requestID,
+        bytes32[] calldata handlesList,
         bytes calldata cleartexts,
         bytes calldata decryptionProof
     ) public virtual {
-        FHE.checkSignatures(requestID, cleartexts, decryptionProof);
-        address to = _receivers[requestID];
-        require(to != address(0), ERC7984InvalidGatewayRequest(requestID));
-        delete _receivers[requestID];
+        FHE.checkSignatures(handlesList, cleartexts, decryptionProof);
+        bytes32 handle = handlesList[0];
+        address to = _receivers[handle];
+        require(to != address(0), ERC7984InvalidGatewayRequest(uint256(handle)));
+        delete _receivers[handle];
 
         SafeERC20.safeTransfer(underlying(), to, abi.decode(cleartexts, (uint64)) * rate());
     }
@@ -147,13 +152,12 @@ abstract contract ERC7984ERC20Wrapper is ERC7984, IERC1363Receiver {
         // try to burn, see how much we actually got
         euint64 burntAmount = _burn(from, amount);
 
-        // decrypt that burntAmount
-        bytes32[] memory cts = new bytes32[](1);
-        cts[0] = euint64.unwrap(burntAmount);
-        uint256 requestID = FHE.requestDecryption(cts, this.finalizeUnwrap.selector);
+        // mark the burnt amount as publicly decryptable for off-chain relayer
+        FHE.makePubliclyDecryptable(burntAmount);
 
-        // register who is getting the tokens
-        _receivers[requestID] = to;
+        // register who is getting the tokens (keyed by handle)
+        bytes32 handle = euint64.unwrap(burntAmount);
+        _receivers[handle] = to;
     }
 
     /**

@@ -2,7 +2,7 @@
 pragma solidity ^0.8.24;
 
 import {FHE, euint64} from "@fhevm/solidity/lib/FHE.sol";
-import {SepoliaConfig} from "@fhevm/solidity/config/ZamaConfig.sol";
+import {ZamaEthereumConfig} from "@fhevm/solidity/config/ZamaConfig.sol";
 import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
@@ -18,7 +18,7 @@ interface IWETH9 is IERC20 {
 /// @notice Confidential wrapper around canonical WETH that mints ERC7984 tokens (cETH) backed 1:1 by ETH.
 ///         Employers can wrap ETH or WETH into confidential balances, which EncryptedPayroll consumes for funding
 ///         and settles back to recipients without revealing the nominal amounts on-chain.
-contract ConfidentialETH is SepoliaConfig, ERC7984ERC20Wrapper {
+contract ConfidentialETH is ZamaEthereumConfig, ERC7984ERC20Wrapper {
     using SafeCast for uint256;
 
     IWETH9 public immutable weth;

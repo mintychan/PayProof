@@ -26,17 +26,18 @@ test.describe("Home page", () => {
     await page.goto("/");
 
     // Hero content should be visible
-    await expect(page.getByRole("heading", { name: "Privacy-Preserving Payroll", level: 1 })).toBeVisible();
-    await expect(page.getByText(/Stream encrypted salaries/i)).toBeVisible();
+    await expect(page.getByRole("heading", { name: /Privacy-Preserving/i, level: 1 })).toBeVisible();
+    await expect(page.getByText(/Stream encrypted salaries/i).first()).toBeVisible();
   });
 
-  test("displays three feature cards", async ({ page }) => {
+  test("displays feature cards", async ({ page }) => {
     await page.goto("/");
 
-    // Card headings should be visible
-    await expect(page.getByRole("heading", { name: "Payments" })).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Vesting" })).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Airdrops" })).toBeVisible();
+    // Card headings should be visible (use .first() to handle use-cases section duplicates)
+    await expect(page.getByRole("heading", { name: "Payments" }).first()).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Vesting" }).first()).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Airdrops" }).first()).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Verify" }).first()).toBeVisible();
 
     // Card descriptions should be visible
     await expect(page.getByText(/Stream encrypted payroll with real-time accrual/i)).toBeVisible();
@@ -79,7 +80,7 @@ test.describe("Home page", () => {
     await page.goto("/");
 
     // Footer should be visible
-    await expect(page.getByText(/Built for the Zama Builder Track/i)).toBeVisible();
+    await expect(page.getByText(/Built for the Zama Special Bounty Track/i)).toBeVisible();
     await expect(page.getByRole("link", { name: "coderlu" })).toBeVisible();
 
     // Footer link should have correct mailto

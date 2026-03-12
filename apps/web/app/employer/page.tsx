@@ -12,12 +12,14 @@ import StreamFilterBar, { StreamFilters, SortOption } from "../../components/Str
 import StreamLabel from "../../components/StreamLabel";
 import { useStreamLabels } from "../../hooks/useStreamLabels";
 import { SkeletonCard } from "../../components/Skeleton";
+import EmployeeDirectory from "../../components/EmployeeDirectory";
 
 export default function EmployerPage() {
   const { address, isConnected } = useAccount();
   const { streams, loading } = useEncryptedStreams(address, "employer");
   const { getLabel, setLabel } = useStreamLabels();
 
+  const [activeTab, setActiveTab] = useState<"streams" | "directory">("streams");
   const [searchQuery, setSearchQuery] = useState("");
   const [filters, setFilters] = useState<StreamFilters>({ status: "All" });
   const [sortOption, setSortOption] = useState<SortOption>("newest");
@@ -198,6 +200,38 @@ export default function EmployerPage() {
         </div>
       </div>
 
+      {/* Sub-tabs: Streams / Directory */}
+      <div className="flex gap-2">
+        <button
+          type="button"
+          onClick={() => setActiveTab("streams")}
+          className={`rounded-xl px-4 py-2 text-sm font-medium transition ${
+            activeTab === "streams"
+              ? "bg-blue-500/20 text-blue-400"
+              : "text-slate-400 hover:bg-slate-800/50 hover:text-slate-200"
+          }`}
+        >
+          Streams
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab("directory")}
+          className={`rounded-xl px-4 py-2 text-sm font-medium transition ${
+            activeTab === "directory"
+              ? "bg-blue-500/20 text-blue-400"
+              : "text-slate-400 hover:bg-slate-800/50 hover:text-slate-200"
+          }`}
+        >
+          Employee Directory
+        </button>
+      </div>
+
+      {activeTab === "directory" ? (
+        <div className="rounded-3xl border border-white/5 bg-slate-900/40 p-6 backdrop-blur">
+          <EmployeeDirectory employerAddress={address || ""} streams={streams} />
+        </div>
+      ) : (
+      <>
       {/* Main Content Grid */}
       <div className="grid gap-6 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
         {/* Stream Creation Form */}
@@ -416,6 +450,8 @@ export default function EmployerPage() {
           </div>
         )}
       </div>
+      </>
+      )}
     </section>
   );
 }

@@ -2,14 +2,14 @@
 pragma solidity ^0.8.24;
 
 import {FHE, ebool, euint8, euint64, euint128, externalEuint128} from "@fhevm/solidity/lib/FHE.sol";
-import {SepoliaConfig} from "@fhevm/solidity/config/ZamaConfig.sol";
+import {ZamaEthereumConfig} from "@fhevm/solidity/config/ZamaConfig.sol";
 import "./EncryptedPayroll.sol";
 import {IConfidentialLockupRecipient} from "./interfaces/IConfidentialLockupRecipient.sol";
 import {FHESafeMath} from "../lib/confidential/utils/FHESafeMath.sol";
 
 /// @title IncomeOracle
 /// @notice Threshold proof-of-income attestations sourced from EncryptedPayroll streams.
-contract IncomeOracle is SepoliaConfig, IConfidentialLockupRecipient {
+contract IncomeOracle is ZamaEthereumConfig, IConfidentialLockupRecipient {
     enum Tier {
         None,
         C,

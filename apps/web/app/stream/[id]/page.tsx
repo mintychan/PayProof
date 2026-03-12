@@ -18,6 +18,7 @@ import { CONFIDENTIAL_DECIMALS, TOKEN_CONFIG, SupportedToken } from "../../../li
 import StreamTimeline, { StreamEvent } from "../../../components/StreamTimeline";
 import TransactionHistory, { TxRecord } from "../../../components/TransactionHistory";
 import { SkeletonStreamDetail } from "../../../components/Skeleton";
+import PayslipGenerator from "../../../components/PayslipGenerator";
 
 type StreamPageProps = { params: Promise<{ id: string }> };
 
@@ -1030,6 +1031,33 @@ const [fundingTokenAddress, setFundingTokenAddress] = useState<string | null>(nu
               <p className="text-xs text-emerald-400/80">
                 ≈ {(parseFloat(decryptedRate) / 30).toFixed(8)} {tokenConfig.symbol}/day
               </p>
+            </div>
+          )}
+
+          {/* Payslip Generator */}
+          {stream && (
+            <div className="rounded-2xl border border-white/5 bg-slate-900/40 p-5 backdrop-blur">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-sm font-semibold text-white">Payslip</h3>
+                  <p className="mt-1 text-xs text-slate-500">
+                    {decryptedRate ? "Download a professional payslip PDF" : "Decrypt your salary first to generate a payslip"}
+                  </p>
+                </div>
+                <PayslipGenerator
+                  streamId={stream.streamId}
+                  streamKey={stream.streamKey}
+                  employerAddress={stream.employer}
+                  employeeAddress={stream.employee}
+                  tokenSymbol={tokenConfig.symbol}
+                  startTime={stream.startTime}
+                  status={stream.status === StreamStatus.Active ? "Active" : stream.status === StreamStatus.Paused ? "Paused" : stream.status === StreamStatus.Settled ? "Settled" : "Cancelled"}
+                  decryptedRate={decryptedRatePerSecond > 0n ? Number(decryptedRatePerSecond) : null}
+                  decryptedWithdrawn={decryptedBalances ? Number(parseUnits(decryptedBalances.withdrawn || "0", CONFIDENTIAL_DECIMALS)) : null}
+                  decryptedBuffered={decryptedBalances ? Number(parseUnits(decryptedBalances.buffered || "0", CONFIDENTIAL_DECIMALS)) : null}
+                  decryptedBalance={decryptedBalances?.available ? Number(parseUnits(decryptedBalances.available, CONFIDENTIAL_DECIMALS)) : null}
+                />
+              </div>
             </div>
           )}
 

@@ -102,8 +102,11 @@ graph TD
 
 ### Deployed Contracts (Sepolia)
 
-- **EncryptedPayroll**: [`0x6fa3a1adc06fefea333a1ce82b4e36fac539ed9d`](https://sepolia.etherscan.io/address/0x6fa3a1adc06fefea333a1ce82b4e36fac539ed9d)
-- **IncomeOracle**: [`0x6cb0aff85dc4fe6afc6d45a2a25334c3d53a802e`](https://sepolia.etherscan.io/address/0x6cb0aff85dc4fe6afc6d45a2a25334c3d53a802e)
+- **EncryptedPayroll**: `0x6fa3a1adC06fefeA333A1ce82B4e36Fac539ed9D`
+- **IncomeOracle**: `0xFe74a9453f216433A2ad70e06a9D241B29077BB8`
+- **ConfidentialETH**: configured via `NEXT_PUBLIC_PAYPROOF_CONFIDENTIAL_TOKEN`
+- **ConfidentialUSDC**: configured via `NEXT_PUBLIC_PAYPROOF_CONFIDENTIAL_USDC`
+- **ConfidentialVestingVault**: configured via `NEXT_PUBLIC_PAYPROOF_VESTING_CONTRACT`
 
 ### Stream NFTs & Indexing
 
@@ -419,7 +422,6 @@ Employer        FHE SDK        EncryptedPayroll       Employee      Hook / Oracl
 - **Async decryption latency**: On Sepolia testnet, fhEVM Gateway decryption takes 15-30 seconds. Production networks will have lower latency.
 - **E2E wallet tests**: Browser-based tests with real wallet signatures are pending fhEVM mocking infrastructure in Playwright.
 - **FHE computation overhead**: Encrypted arithmetic costs ~10-50x more gas than plaintext equivalents. Batch operations amortize this.
-- **Single-token support**: Currently only supports ConfidentialETH (cETH). Multi-token support planned for Phase 3.
 - **Stream key uniqueness**: One active stream per employer-employee pair. Use different addresses for multiple concurrent streams.
 
 ## 📐 Decryption Math
@@ -502,16 +504,21 @@ The handle array therefore fully determines the visible payroll metrics once dec
   - Employer-side encrypted top-up tooling
   - Frontend controls for fhEVM encryption + submission
   - Stream detail page surfaces balance handles after top-up
-- [ ] **Batch operations**
+- [X] **Batch operations**
 
   - Create multiple streams in one transaction
   - Bulk pause/resume streams
   - Batch top-ups across multiple employees
-- [ ] **Confidential ETH wrapper**
+- [X] **Confidential ETH wrapper**
 
   - Deploy `ConfidentialFungibleTokenERC20Wrapper` around ETH
   - Support confidential employer funding and withdrawals
   - Reuse wrapped balances for cross-contract private transfers
+- [X] **Multi-token support**
+
+  - ConfidentialUSDC wrapper alongside ConfidentialETH
+  - ConfidentialTokenFactory for deploying new wrappers
+  - Token selection in stream creation and vesting flows
 - [ ] **Stream templates**
 
   - Save commonly used stream configurations
@@ -596,7 +603,7 @@ MIT License - See LICENSE file for details
 
 Built with [Zama&#39;s fhEVM](https://www.zama.ai/fhevm) - Fully Homomorphic Encryption for Ethereum
 
-Submitted for the Zama Builder Track by coderlu
+Submitted for the Zama Special Bounty Track — Confidential Payroll by coderlu
 
 ---
 

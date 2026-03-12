@@ -466,48 +466,88 @@ export default function AnalyticsPage() {
             </div>
           </div>
 
-          {/* Status Breakdown */}
+          {/* Status Breakdown with Donut Chart */}
           <div className="rounded-3xl border border-white/5 bg-slate-900/40 p-6 backdrop-blur">
-            <h2 className="mb-4 text-lg font-semibold text-white">
-              Status Breakdown
-            </h2>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-semibold text-white">
+                Status Breakdown
+              </h2>
+              <button
+                type="button"
+                onClick={() => {
+                  const headers = ["Stream ID", "Employee", "Status", "Start Date", "Cadence (s)"];
+                  const rows = data.streams.map((s) => [
+                    s.id,
+                    s.employee,
+                    s.status,
+                    new Date(Number(s.startTime) * 1000).toLocaleDateString(),
+                    s.cadenceInSeconds,
+                  ]);
+                  const csv = [headers, ...rows].map((r) => r.join(",")).join("\n");
+                  const blob = new Blob([csv], { type: "text/csv" });
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement("a");
+                  a.href = url;
+                  a.download = `payroll_analytics_${new Date().toISOString().slice(0, 10)}.csv`;
+                  a.click();
+                  URL.revokeObjectURL(url);
+                }}
+                className="flex items-center gap-1.5 rounded-lg border border-white/10 bg-slate-900/60 px-3 py-1.5 text-xs text-slate-400 transition hover:border-white/20 hover:text-white"
+              >
+                <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+                Export CSV
+              </button>
+            </div>
 
             {barTotal > 0 ? (
-              <>
-                {/* Horizontal stacked bar */}
-                <div className="mb-4 flex h-4 overflow-hidden rounded-full bg-slate-800/60">
-                  {barSegments.map(
-                    (seg) =>
-                      seg.count > 0 && (
-                        <div
-                          key={seg.label}
-                          className={`${seg.color} transition-all duration-500`}
-                          style={{
-                            width: `${(seg.count / barTotal) * 100}%`,
-                          }}
-                          title={`${seg.label}: ${seg.count}`}
-                        />
-                      )
-                  )}
+              <div className="grid gap-6 lg:grid-cols-2">
+                {/* Donut Chart */}
+                <div className="flex items-center justify-center">
+                  <DonutChart segments={barSegments} total={barTotal} />
                 </div>
 
-                {/* Legend */}
-                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                  {barSegments.map((seg) => (
-                    <div key={seg.label} className="flex items-center gap-3">
-                      <div
-                        className={`h-3 w-3 rounded-full ${seg.color}`}
-                      />
-                      <div>
-                        <p className="text-sm font-medium text-white">
-                          {seg.count}
+                {/* Legend & Bar */}
+                <div className="space-y-4">
+                  {/* Horizontal stacked bar */}
+                  <div className="flex h-4 overflow-hidden rounded-full bg-slate-800/60">
+                    {barSegments.map(
+                      (seg) =>
+                        seg.count > 0 && (
+                          <div
+                            key={seg.label}
+                            className={`${seg.color} transition-all duration-500`}
+                            style={{
+                              width: `${(seg.count / barTotal) * 100}%`,
+                            }}
+                            title={`${seg.label}: ${seg.count}`}
+                          />
+                        )
+                    )}
+                  </div>
+
+                  {/* Legend */}
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    {barSegments.map((seg) => (
+                      <div key={seg.label} className="flex items-center gap-3 rounded-xl border border-white/5 bg-slate-950/40 px-3 py-2">
+                        <div
+                          className={`h-3 w-3 rounded-full ${seg.color}`}
+                        />
+                        <div>
+                          <p className="text-sm font-medium text-white">
+                            {seg.count}
+                          </p>
+                          <p className="text-xs text-slate-500">{seg.label}</p>
+                        </div>
+                        <p className="ml-auto text-xs text-slate-500">
+                          {barTotal > 0 ? Math.round((seg.count / barTotal) * 100) : 0}%
                         </p>
-                        <p className="text-xs text-slate-500">{seg.label}</p>
                       </div>
-                    </div>
-                  ))}
+                    ))}
+                  </div>
                 </div>
-              </>
+              </div>
             ) : (
               <p className="text-sm text-slate-500">
                 No streams to display yet.
@@ -818,5 +858,75 @@ function MonthlyTimeline({ streams }: { streams: StreamSummary[] }) {
         );
       })}
     </div>
+  );
+}
+
+/**
+ * SVG-based donut chart for stream status breakdown.
+ */
+function DonutChart({
+  segments,
+  total,
+}: {
+  segments: { count: number; color: string; label: string }[];
+  total: number;
+}) {
+  const size = 160;
+  const strokeWidth = 24;
+  const radius = (size - strokeWidth) / 2;
+  const circumference = 2 * Math.PI * radius;
+  let offset = 0;
+
+  const colorMap: Record<string, string> = {
+    "bg-emerald-500": "#10b981",
+    "bg-amber-500": "#f59e0b",
+    "bg-red-500": "#ef4444",
+    "bg-blue-500": "#3b82f6",
+  };
+
+  return (
+    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+      {segments.map((seg) => {
+        if (seg.count === 0) return null;
+        const pct = seg.count / total;
+        const dashLength = pct * circumference;
+        const dashOffset = -offset * circumference;
+        offset += pct;
+
+        return (
+          <circle
+            key={seg.label}
+            cx={size / 2}
+            cy={size / 2}
+            r={radius}
+            fill="none"
+            stroke={colorMap[seg.color] ?? "#64748b"}
+            strokeWidth={strokeWidth}
+            strokeDasharray={`${dashLength} ${circumference - dashLength}`}
+            strokeDashoffset={dashOffset}
+            strokeLinecap="butt"
+            transform={`rotate(-90 ${size / 2} ${size / 2})`}
+          />
+        );
+      })}
+      <text
+        x={size / 2}
+        y={size / 2 - 6}
+        textAnchor="middle"
+        className="fill-white text-2xl font-bold"
+        fontSize="24"
+      >
+        {total}
+      </text>
+      <text
+        x={size / 2}
+        y={size / 2 + 14}
+        textAnchor="middle"
+        className="fill-slate-400 text-xs"
+        fontSize="11"
+      >
+        streams
+      </text>
+    </svg>
   );
 }

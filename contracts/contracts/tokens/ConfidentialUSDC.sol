@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import {SepoliaConfig} from "@fhevm/solidity/config/ZamaConfig.sol";
+import {ZamaEthereumConfig} from "@fhevm/solidity/config/ZamaConfig.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 import {ERC7984} from "../../lib/confidential/token/ERC7984/ERC7984.sol";
@@ -13,7 +13,7 @@ import {ERC7984ERC20Wrapper} from "../../lib/confidential/token/ERC7984/extensio
 ///         Users wrap USDC via the inherited `wrap(address to, uint256 amount)` function and unwrap via `unwrap()`.
 /// @dev Inherits ERC7984ERC20Wrapper which provides `wrap()`, `unwrap()`, and ERC-1363 `onTransferReceived()`.
 ///      Unlike ConfidentialETH, there is no native-currency wrapping since USDC is ERC-20 only.
-contract ConfidentialUSDC is SepoliaConfig, ERC7984ERC20Wrapper {
+contract ConfidentialUSDC is ZamaEthereumConfig, ERC7984ERC20Wrapper {
     /// @notice Emitted when USDC is wrapped into confidential tokens.
     event USDCWrapped(address indexed from, address indexed to, uint256 amount);
 

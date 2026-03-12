@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import {SepoliaConfig} from "@fhevm/solidity/config/ZamaConfig.sol";
+import {ZamaEthereumConfig} from "@fhevm/solidity/config/ZamaConfig.sol";
 import {FHE, euint64, euint128, externalEuint64} from "@fhevm/solidity/lib/FHE.sol";
 import {IERC7984} from "../../lib/confidential/interfaces/IERC7984.sol";
 import {ERC721} from "@openzeppelin/contracts/token/ERC721/ERC721.sol";
@@ -9,7 +9,7 @@ import {ERC721Enumerable} from "@openzeppelin/contracts/token/ERC721/extensions/
 
 /// @title ConfidentialVestingVault
 /// @notice cETH-backed vesting schedules with encrypted balances, cliffs, and NFT ownership per schedule.
-contract ConfidentialVestingVault is SepoliaConfig, ERC721Enumerable {
+contract ConfidentialVestingVault is ZamaEthereumConfig, ERC721Enumerable {
     struct CreateRequest {
         address beneficiary;
         uint64 start;

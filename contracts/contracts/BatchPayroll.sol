@@ -2,14 +2,14 @@
 pragma solidity ^0.8.24;
 
 import {FHE, euint64, euint128, externalEuint64, externalEuint128} from "@fhevm/solidity/lib/FHE.sol";
-import {SepoliaConfig} from "@fhevm/solidity/config/ZamaConfig.sol";
+import {ZamaEthereumConfig} from "@fhevm/solidity/config/ZamaConfig.sol";
 import {EncryptedPayroll} from "./EncryptedPayroll.sol";
 
 /// @title BatchPayroll
 /// @notice Batch operations wrapper for EncryptedPayroll - enables enterprise-scale payroll management.
 /// @dev Delegates to EncryptedPayroll for individual stream operations. All FHE operations
 ///      run through the underlying payroll contract.
-contract BatchPayroll is SepoliaConfig {
+contract BatchPayroll is ZamaEthereumConfig {
     /// @notice The EncryptedPayroll contract that this batch wrapper delegates to.
     EncryptedPayroll public immutable payroll;
 

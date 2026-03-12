@@ -6,7 +6,7 @@ import {ConfidentialERC20Wrapper} from "./ConfidentialERC20Wrapper.sol";
 /// @title ConfidentialTokenFactory
 /// @notice Factory contract that deploys ERC-7984 confidential wrappers for arbitrary ERC-20 tokens.
 ///         Each ERC-20 can have at most one wrapper deployed through this factory.
-/// @dev Deployed wrappers are instances of ConfidentialERC20Wrapper which inherits SepoliaConfig,
+/// @dev Deployed wrappers are instances of ConfidentialERC20Wrapper which inherits ZamaEthereumConfig,
 ///      ERC7984, and ERC7984ERC20Wrapper.
 contract ConfidentialTokenFactory {
     /// @notice Emitted when a new confidential wrapper is deployed for an ERC-20 token.

@@ -74,7 +74,7 @@ test.describe("Airdrops page", () => {
     await page.goto("/airdrops");
 
     // Footer should be visible
-    await expect(page.getByText(/Built for the Zama Builder Track/i)).toBeVisible();
+    await expect(page.getByText(/Built for the Zama Special Bounty Track/i)).toBeVisible();
     await expect(page.getByRole("link", { name: "coderlu" })).toBeVisible();
   });
 });
