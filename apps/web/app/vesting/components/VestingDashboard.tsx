@@ -13,7 +13,14 @@ export function VestingDashboard() {
   const { address } = useAccount();
   const { status: fhevmStatus, error: fheError } = useFhevmContext();
   const [vestingIdInput, setVestingIdInput] = useState<string>("");
-  const [schedule, setSchedule] = useState<any | null>(null);
+  const [schedule, setSchedule] = useState<{
+    sponsor: string;
+    beneficiary: string;
+    start: bigint;
+    cliff: bigint;
+    duration: bigint;
+    cancelable: boolean;
+  } | null>(null);
   const [handles, setHandles] = useState<{ total: string; released: string } | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -44,8 +51,8 @@ export function VestingDashboard() {
       const [totalHandle, releasedHandle] = await confidentialVestingContract.encryptedAmounts(vestingIdInput.trim());
       setSchedule(scheduleData);
       setHandles({ total: totalHandle, released: releasedHandle });
-    } catch (e: any) {
-      setError(e?.message || "Failed to load schedule");
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Failed to load schedule");
     } finally {
       setLoading(false);
     }

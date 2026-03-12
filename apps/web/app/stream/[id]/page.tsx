@@ -19,6 +19,7 @@ import StreamTimeline, { StreamEvent } from "../../../components/StreamTimeline"
 import TransactionHistory, { TxRecord } from "../../../components/TransactionHistory";
 import { SkeletonStreamDetail } from "../../../components/Skeleton";
 import PayslipGenerator from "../../../components/PayslipGenerator";
+import ConfirmDialog from "../../../components/ConfirmDialog";
 
 type StreamPageProps = { params: Promise<{ id: string }> };
 
@@ -61,6 +62,7 @@ const [decryptedBalances, setDecryptedBalances] = useState<
   const [mounted, setMounted] = useState(false);
 const [fundingTokenAddress, setFundingTokenAddress] = useState<string | null>(null);
   const [activeHistoryTab, setActiveHistoryTab] = useState<"timeline" | "transactions">("timeline");
+  const [showCancelConfirm, setShowCancelConfirm] = useState(false);
 
   const payrollContractAddress = process.env.NEXT_PUBLIC_PAYPROOF_PAYROLL_CONTRACT?.trim() || "";
 
@@ -69,8 +71,8 @@ const [fundingTokenAddress, setFundingTokenAddress] = useState<string | null>(nu
     if (!walletClient || !address) return undefined;
 
     const eip1193Provider = {
-      request: async (args: any) => {
-        return await walletClient.request(args);
+      request: async (args: { method: string; params?: readonly unknown[] }) => {
+        return await walletClient.request(args as Parameters<typeof walletClient.request>[0]);
       },
     } as ethers.Eip1193Provider;
 
@@ -339,9 +341,9 @@ const [fundingTokenAddress, setFundingTokenAddress] = useState<string | null>(nu
           debt: formatUnits(debtWei, CONFIDENTIAL_DECIMALS),
         });
       }
-    } catch (error: any) {
-      logger.error("Decryption error:", error);
-      setDecryptError(error?.message || "Failed to decrypt. Make sure you have permission to decrypt this stream.");
+    } catch (err: unknown) {
+      logger.error("Decryption error:", err);
+      setDecryptError(err instanceof Error ? err.message : "Failed to decrypt. Make sure you have permission to decrypt this stream.");
     } finally {
       setDecrypting(false);
     }
@@ -370,15 +372,15 @@ const [fundingTokenAddress, setFundingTokenAddress] = useState<string | null>(nu
       const txHash = await encryptedPayrollContract.withdrawMax(stream.streamKey, address);
       setActionMessage(`Withdrawal sent: ${txHash.slice(0, 10)}…`);
       await fetchStream();
-    } catch (error: any) {
-      logger.error("Withdraw error", error);
-      setActionError(error?.message ?? "Failed to withdraw");
+    } catch (err: unknown) {
+      logger.error("Withdraw error", err);
+      setActionError(err instanceof Error ? err.message : "Failed to withdraw");
     } finally {
       setWithdrawing(false);
     }
   };
 
-  const handleCancel = async () => {
+  const requestCancel = () => {
     if (!stream) return;
     if (!isEmployer) {
       setActionError("Only the employer can cancel the stream.");
@@ -388,7 +390,12 @@ const [fundingTokenAddress, setFundingTokenAddress] = useState<string | null>(nu
       setActionError("This stream can no longer be cancelled.");
       return;
     }
+    setShowCancelConfirm(true);
+  };
 
+  const handleCancel = async () => {
+    if (!stream) return;
+    setShowCancelConfirm(false);
     setActionError(null);
     setActionMessage(null);
     setCanceling(true);
@@ -396,9 +403,9 @@ const [fundingTokenAddress, setFundingTokenAddress] = useState<string | null>(nu
       const txHash = await encryptedPayrollContract.cancelStream(stream.streamKey);
       setActionMessage(`Cancellation sent: ${txHash.slice(0, 10)}…`);
       await fetchStream();
-    } catch (error: any) {
-      logger.error("Cancel error", error);
-      setActionError(error?.message ?? "Failed to cancel stream");
+    } catch (err: unknown) {
+      logger.error("Cancel error", err);
+      setActionError(err instanceof Error ? err.message : "Failed to cancel stream");
     } finally {
       setCanceling(false);
     }
@@ -467,9 +474,9 @@ const [fundingTokenAddress, setFundingTokenAddress] = useState<string | null>(nu
       setActionMessage(`Top-up sent: ${txHash.slice(0, 10)}…`);
       setTopUpAmount("");
       await fetchStream();
-    } catch (error: any) {
-      logger.error("Top-up error", error);
-      setActionError(error?.message ?? "Failed to top up stream");
+    } catch (err: unknown) {
+      logger.error("Top-up error", err);
+      setActionError(err instanceof Error ? err.message : "Failed to top up stream");
     } finally {
       setTopUpLoading(false);
     }
@@ -531,9 +538,9 @@ const [fundingTokenAddress, setFundingTokenAddress] = useState<string | null>(nu
           ? `Stream synced. Balances updated on-chain (tx ${txHash.slice(0, 10)}…). Balance handle refreshed.`
           : "Stream synced. Balances updated on-chain. Balance handle refreshed."
       );
-    } catch (error: any) {
-      logger.error("Sync error", error);
-      setActionError(error?.message ?? "Failed to sync stream");
+    } catch (err: unknown) {
+      logger.error("Sync error", err);
+      setActionError(err instanceof Error ? err.message : "Failed to sync stream");
       fetchedHandle = null;
     } finally {
       setCheckingBalance(false);
@@ -985,7 +992,7 @@ const [fundingTokenAddress, setFundingTokenAddress] = useState<string | null>(nu
               </button>
               <button
                 type="button"
-                onClick={handleCancel}
+                onClick={requestCancel}
                 disabled={!isEmployer || !stream.cancelable || canceling}
                 className="rounded-xl border border-white/5 bg-slate-950/60 px-4 py-2 text-sm font-medium text-white transition hover:border-red-400/40 disabled:cursor-not-allowed disabled:opacity-60"
               >
@@ -1204,6 +1211,16 @@ const [fundingTokenAddress, setFundingTokenAddress] = useState<string | null>(nu
           />
         )}
       </div>
+      <ConfirmDialog
+        open={showCancelConfirm}
+        onClose={() => setShowCancelConfirm(false)}
+        onConfirm={handleCancel}
+        title="Cancel Stream"
+        message="This will permanently cancel the stream. Any unstreamed funds will be returned to the employer. This action cannot be undone."
+        confirmLabel="Cancel Stream"
+        variant="danger"
+        loading={canceling}
+      />
     </section>
   );
 }

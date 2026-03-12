@@ -264,7 +264,7 @@ export default function CSVBatchUpload() {
         );
 
         logger.log(`Stream ${i + 1} created: ${result.transactionHash}`);
-      } catch (err: any) {
+      } catch (err: unknown) {
         logger.error(`Stream ${i + 1} failed:`, err);
         setStatuses((prev) =>
           prev.map((s, idx) =>
@@ -272,7 +272,7 @@ export default function CSVBatchUpload() {
               ? {
                   ...s,
                   status: "error",
-                  error: err?.message || "Transaction failed",
+                  error: err instanceof Error ? err.message : "Transaction failed",
                 }
               : s
           )

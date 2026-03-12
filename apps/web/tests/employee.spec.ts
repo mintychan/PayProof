@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { injectMockEthereum, connectMockWallet } from "./helpers/mockWallet";
 
 test.describe("Employee flow", () => {
   test("loads employee page successfully", async ({ page }) => {
@@ -29,55 +30,45 @@ test.describe("Employee flow", () => {
     await expect(page.getByRole("link", { name: /Airdrops/i }).first()).toBeVisible();
   });
 
-  // TODO: Enable when wallet connection and blockchain mocking is set up for tests
-  test.skip("displays encrypted streams list when wallet connected", async ({ page }) => {
-    // This test requires:
-    // 1. Mocked wallet connection with wagmi
-    // 2. Mocked blockchain data for streams
-
+  test("displays employee dashboard when wallet connected", async ({ page }) => {
+    await injectMockEthereum(page);
     await page.goto("/employee");
+    await connectMockWallet(page);
 
-    await expect(page.getByRole("heading", { name: "Your Encrypted Payroll Streams" })).toBeVisible();
-    await expect(page.getByText("Active Streams")).toBeVisible();
+    // Should show the main heading
+    await expect(page.getByRole("heading", { name: "Payment Streams" })).toBeVisible();
 
-    // When no streams exist
-    // await expect(page.getByText("No streams found for your address")).toBeVisible();
+    // Should show stats cards
+    await expect(page.getByText("Wallet", { exact: true })).toBeVisible();
+    await expect(page.getByText("Active streams")).toBeVisible();
+    await expect(page.getByText("Network")).toBeVisible();
 
-    // When streams exist, should show:
-    // - Stream cards with employer address
-    // - Stream status (Active/Paused/Cancelled)
-    // - Encrypted rate handle
-    // - Privacy protection notice
+    // Should show "Your Streams" section
+    await expect(page.getByText(/Your Streams/)).toBeVisible();
+
+    // When no streams exist, should show empty state
+    await expect(page.getByText("No Streams Found")).toBeVisible();
   });
 
-  // TODO: Enable when wallet connection and blockchain mocking is set up for tests
-  test.skip("navigates to stream detail page for decryption", async ({ page }) => {
-    // This test requires:
-    // 1. Mocked wallet connection
-    // 2. Mocked streams from blockchain
-
+  test("shows about encrypted streams section when connected", async ({ page }) => {
+    await injectMockEthereum(page);
     await page.goto("/employee");
+    await connectMockWallet(page);
 
-    // Clicking a stream should navigate to /stream/[id] page
-    // where the actual decryption happens
-
-    // const streamCard = page.locator('a[href^="/stream/"]').first();
-    // await expect(streamCard).toBeVisible();
-    // await streamCard.click();
-
-    // Should be on stream detail page
-    // await expect(page).toHaveURL(/\/stream\/.+/);
+    // Should show the info card about encrypted streams
+    await expect(page.getByText("About Encrypted Streams")).toBeVisible();
+    await expect(page.getByText(/fully homomorphic encryption/i)).toBeVisible();
   });
 
-  // TODO: Enable when wallet connection mocking is set up for tests
-  test.skip("shows proof generation link when wallet connected", async ({ page }) => {
-    // This test requires mocked wallet connection
-
+  test("shows navigation tabs when wallet connected", async ({ page }) => {
+    await injectMockEthereum(page);
     await page.goto("/employee");
+    await connectMockWallet(page);
 
-    // Should show link to proof generation page
-    // const proofLink = page.getByRole("link", { name: "Generate Proof" });
-    // await expect(proofLink).toBeVisible();
-    // await expect(proofLink).toHaveAttribute("href", "/verify");
+    // Should show role tabs
+    await expect(page.getByRole("link", { name: /As sender/i })).toBeVisible();
+    await expect(page.getByRole("link", { name: /As recipient/i })).toBeVisible();
+    await expect(page.getByRole("link", { name: /Proof of Income/i })).toBeVisible();
+    await expect(page.getByRole("link", { name: /Employment Proof/i })).toBeVisible();
   });
 });

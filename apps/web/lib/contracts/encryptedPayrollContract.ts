@@ -135,16 +135,17 @@ export class EncryptedPayrollContract {
         params.startTime || 0
       );
       logger.log("Estimated gas:", gasEstimate.toString());
-    } catch (estimateError: any) {
+    } catch (estimateError: unknown) {
       logger.error("Gas estimation failed:", estimateError);
 
       // Try to decode custom error
-      let decoded = null as null | { name: string; args: any[] };
+      let decoded = null as null | { name: string; args: unknown[] };
       try {
-        const data = estimateError?.data || estimateError?.error?.data || estimateError?.info?.error?.data;
+        const err = estimateError as Record<string, unknown>;
+        const data = err?.data || (err?.error as Record<string, unknown>)?.data || (err?.info as Record<string, unknown>)?.error && ((err.info as Record<string, unknown>).error as Record<string, unknown>)?.data;
         if (data) {
-          const parsed = (contract.interface as any).parseError(data);
-          if (parsed) decoded = { name: parsed.name, args: parsed.args };
+          const parsed = contract.interface.parseError(data as string);
+          if (parsed) decoded = { name: parsed.name, args: [...parsed.args] };
         }
       } catch {}
 
@@ -157,7 +158,7 @@ export class EncryptedPayrollContract {
 
       const errorMessage = decoded
         ? `${decoded.name}${friendlyMap[decoded.name] ? ` - ${friendlyMap[decoded.name]}` : ""}`
-        : (estimateError?.reason || estimateError?.message || estimateError?.data?.message || "Unknown error during gas estimation");
+        : (estimateError instanceof Error ? estimateError.message : "Unknown error during gas estimation");
 
       throw new Error(`Transaction will fail: ${errorMessage}`);
     }

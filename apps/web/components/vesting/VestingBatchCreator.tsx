@@ -99,8 +99,8 @@ export function VestingBatchCreator() {
       }
       setRows(prepared);
       setLog(`Prepared ${prepared.length} vesting calls with encrypted amounts.`);
-    } catch (e: any) {
-      setError(e?.message || "Failed to prepare batch");
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message :"Failed to prepare batch");
     } finally {
       setBusy(false);
     }
@@ -134,8 +134,8 @@ export function VestingBatchCreator() {
         });
       }
       setLog(`Submitted ${rows.length} createVesting txs`);
-    } catch (e: any) {
-      setError(e?.message || "Batch execution failed");
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message :"Batch execution failed");
     } finally {
       setBusy(false);
     }
@@ -148,7 +148,7 @@ export function VestingBatchCreator() {
     setLog(null);
     try {
       const vestingAddr = confidentialVestingContract.getAddress();
-      const provider = new BrowserProvider((window as any).ethereum);
+      const provider = new BrowserProvider((window as unknown as { ethereum: import("ethers").Eip1193Provider }).ethereum);
       const network = await provider.getNetwork();
       const iface = new Interface(CONFIDENTIAL_VESTING_ABI);
 
@@ -182,8 +182,8 @@ export function VestingBatchCreator() {
       const url = URL.createObjectURL(blob);
       setSafeUrl(url);
       setLog("Safe batch JSON ready. Download and import into the Safe Transaction Builder.");
-    } catch (e: any) {
-      setError(e?.message || "Failed to generate Safe batch file");
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message :"Failed to generate Safe batch file");
     } finally {
       setBusy(false);
     }
@@ -259,7 +259,7 @@ export function VestingBatchCreator() {
       )}
 
       {log && <p className="text-sm text-emerald-300">{log}</p>}
-      {(error || fheError) && <p className="text-sm text-red-400">{error || (typeof fheError === "string" ? fheError : (fheError as any)?.message)}</p>}
+      {(error || fheError) && <p className="text-sm text-red-400">{error || (typeof fheError === "string" ? fheError : fheError instanceof Error ? fheError.message : String(fheError))}</p>}
     </div>
   );
 }

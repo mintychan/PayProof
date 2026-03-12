@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { injectMockEthereum, connectMockWallet } from "./helpers/mockWallet";
 
 test.describe("Employer flow", () => {
   test("loads employer page successfully", async ({ page }) => {
@@ -29,63 +30,48 @@ test.describe("Employer flow", () => {
     await expect(page.getByRole("link", { name: /Airdrops/i }).first()).toBeVisible();
   });
 
-  // TODO: Enable when wallet connection and fhEVM mocking is set up for tests
-  test.skip("renders encrypted stream creation form when wallet connected", async ({ page }) => {
-    // This test requires:
-    // 1. Mocked wallet connection with wagmi
-    // 2. Mocked fhEVM provider initialized
-    // 3. Mocked blockchain connection for creating streams
-
+  test("renders stream creation form when wallet connected", async ({ page }) => {
+    await injectMockEthereum(page);
     await page.goto("/employer");
-    await expect(page.getByRole("heading", { name: "Create Encrypted Payroll Streams" })).toBeVisible();
-    await expect(page.getByText("Create Confidential Stream")).toBeVisible();
+    await connectMockWallet(page);
 
-    // Employer field should be auto-populated from connected wallet
-    const employerInput = page.locator("input[name=employer]");
-    await expect(employerInput).toBeDisabled();
+    // Should show the main heading
+    await expect(page.getByRole("heading", { name: "Payment Streams" })).toBeVisible();
 
-    // Fill in the stream creation form
-    await page.fill("input[name=employee]", "0x1234567890123456789012345678901234567890");
-    await page.fill("input[name=rate]", "1.5");
-    await page.selectOption("select[name=cadence]", { label: "Monthly" });
+    // Should show stats overview cards
+    await expect(page.getByText("Wallet", { exact: true })).toBeVisible();
+    await expect(page.getByText("Active streams")).toBeVisible();
 
-    // Submit should be disabled until fhEVM is ready
-    const submitButton = page.getByRole("button", { name: /Encrypt & Create Stream/i });
-    await expect(submitButton).toBeDisabled();
+    // Should show streams tab content
+    await expect(page.getByText("Your Streams")).toBeVisible();
+
+    // Should show the "How it works" section
+    await expect(page.getByText("How it works")).toBeVisible();
+    await expect(page.getByText("Client-side encryption")).toBeVisible();
   });
 
-  // TODO: Enable when wallet connection and fhEVM mocking is set up for tests
-  test.skip("creates encrypted stream and shows result", async ({ page }) => {
-    // This test requires full integration with:
-    // 1. Wallet connection
-    // 2. fhEVM initialization and encryption
-    // 3. Contract interaction
-
+  test("shows employee directory tab when wallet connected", async ({ page }) => {
+    await injectMockEthereum(page);
     await page.goto("/employer");
+    await connectMockWallet(page);
 
-    // After form submission with mocked successful transaction:
-    // const preview = page.getByTestId("encryption-preview");
-    // await expect(preview).toBeVisible();
-    // await expect(preview).toContainText("Encrypted rate payload");
+    // Should have streams and directory tabs
+    const directoryTab = page.getByRole("button", { name: /Employee Directory/i });
+    await expect(directoryTab).toBeVisible();
 
-    // const result = page.getByTestId("stream-result");
-    // await expect(result).toBeVisible();
-    // await expect(result).toContainText("Stream Created!");
-    // await expect(result).toContainText("Streaming 1.5 ETH/month");
+    // Click directory tab
+    await directoryTab.click();
+
+    // Should show the directory heading
+    await expect(page.getByRole("heading", { name: /Employee Directory/ })).toBeVisible();
   });
 
-  // TODO: Enable when wallet connection and fhEVM mocking is set up for tests
-  test.skip("displays created streams list when wallet connected", async ({ page }) => {
-    // This test requires:
-    // 1. Wallet connection
-    // 2. Mocked streams from blockchain
-
+  test("shows empty state when no streams exist", async ({ page }) => {
+    await injectMockEthereum(page);
     await page.goto("/employer");
+    await connectMockWallet(page);
 
-    // Should show streams list section
-    // await expect(page.getByRole("heading", { name: /Your Streams/ })).toBeVisible();
-
-    // When streams exist, should show stream cards
-    // Should be clickable links to /stream/[id]
+    // When no streams exist, should show empty state
+    await expect(page.getByText("No streams created yet")).toBeVisible();
   });
 });

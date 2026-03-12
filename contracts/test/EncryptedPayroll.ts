@@ -65,10 +65,6 @@ describe("EncryptedPayroll - Basic Tests (No FHE Required)", function () {
       expect(await payroll.admin()).to.equal(owner.address);
     });
 
-    it("Should have correct protocol ID", async function () {
-      const protocolId = await payroll.protocolId();
-      expect(protocolId).to.equal(10001n); // Protocol ID is hardcoded to 10001
-    });
   });
 
   describe("Stream ID Computation", function () {

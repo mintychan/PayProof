@@ -82,8 +82,8 @@ export function VestingCreateForm() {
       });
 
       setMessage("Vesting created!");
-    } catch (e: any) {
-      setError(e?.message || "Failed to create vesting");
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Failed to create vesting");
     } finally {
       setBusy(false);
     }

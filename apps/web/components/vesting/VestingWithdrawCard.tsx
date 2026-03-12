@@ -36,8 +36,8 @@ export function VestingWithdrawCard() {
       setBusy(true);
       await confidentialVestingContract.withdraw(vestingId.trim(), to);
       setMessage("Withdrawal submitted. It may take a few blocks to settle.");
-    } catch (e: any) {
-      setError(e?.message || "Withdraw failed");
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Withdraw failed");
     } finally {
       setBusy(false);
     }
